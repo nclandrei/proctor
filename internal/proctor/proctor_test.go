@@ -297,6 +297,9 @@ func TestBrowserImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T
 	if eval.ScenarioEvaluations[0].BrowserOK {
 		t.Fatalf("expected browser evidence to fail implicit health checks")
 	}
+	if !containsSubstring(eval.ScenarioEvaluations[0].BrowserIssues, "assertion failed: failed_requests = 0") {
+		t.Fatalf("expected browser issues to include failed assertion detail, got %#v", eval.ScenarioEvaluations[0].BrowserIssues)
+	}
 }
 
 func TestExplicitDesktopIssueAssertionOverridesImplicitZeroCheck(t *testing.T) {
@@ -342,6 +345,43 @@ func TestExplicitDesktopIssueAssertionOverridesImplicitZeroCheck(t *testing.T) {
 		if assertion.Description == "http_errors = 0" && assertion.Result == AssertionFail {
 			t.Fatalf("unexpected implicit desktop http_errors failure: %#v", assertion)
 		}
+	}
+}
+
+func TestCurlEvaluationIncludesFailedAssertionDetails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RecordCurl(store, run, CurlRecordOptions{
+		ScenarioID: "happy-path",
+		Command:    []string{"/bin/sh", "-lc", "printf 'HTTP/1.1 500 Internal Server Error\\nContent-Type: application/json\\n\\n{\"error\":\"boom\"}'"},
+		PassAssertions: []string{
+			"status = 200",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.ScenarioEvaluations[0].CurlOK {
+		t.Fatalf("expected curl evidence to fail")
+	}
+	if !containsSubstring(eval.ScenarioEvaluations[0].CurlIssues, "assertion failed: status = 200") {
+		t.Fatalf("expected curl issues to include failed assertion detail, got %#v", eval.ScenarioEvaluations[0].CurlIssues)
 	}
 }
 
@@ -428,4 +468,13 @@ func writeFixture(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func containsSubstring(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }

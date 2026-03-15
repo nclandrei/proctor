@@ -38,14 +38,14 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 			if scenario.Eval.BrowserOK {
 				md.WriteString("- Browser: pass\n")
 			} else {
-				md.WriteString(fmt.Sprintf("- Browser: missing (%s)\n", strings.Join(scenario.Eval.BrowserIssues, ", ")))
+				md.WriteString(fmt.Sprintf("- Browser: fail (%s)\n", strings.Join(scenario.Eval.BrowserIssues, ", ")))
 			}
 		}
 		if scenario.Eval.Scenario.CurlRequired {
 			if scenario.Eval.CurlOK {
 				md.WriteString("- curl: pass\n")
 			} else {
-				md.WriteString(fmt.Sprintf("- curl: missing (%s)\n", strings.Join(scenario.Eval.CurlIssues, ", ")))
+				md.WriteString(fmt.Sprintf("- curl: fail (%s)\n", strings.Join(scenario.Eval.CurlIssues, ", ")))
 			}
 		}
 
@@ -120,8 +120,8 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
   <section class="card">
     <h3>{{ .Eval.Scenario.Label }}</h3>
     <p><code>{{ .Eval.Scenario.ID }}</code></p>
-    {{ if .Eval.EvalHasBrowser }}{{ if .Eval.BrowserOK }}<div class="ok">browser: pass</div>{{ else }}<div class="bad">browser: {{ join .Eval.BrowserIssues ", " }}</div>{{ end }}{{ end }}
-    {{ if .Eval.Scenario.CurlRequired }}{{ if .Eval.CurlOK }}<div class="ok">curl: pass</div>{{ else }}<div class="bad">curl: {{ join .Eval.CurlIssues ", " }}</div>{{ end }}{{ end }}
+    {{ if .Eval.EvalHasBrowser }}{{ if .Eval.BrowserOK }}<div class="ok">browser: pass</div>{{ else }}<div class="bad">browser: fail ({{ join .Eval.BrowserIssues ", " }})</div>{{ end }}{{ end }}
+    {{ if .Eval.Scenario.CurlRequired }}{{ if .Eval.CurlOK }}<div class="ok">curl: pass</div>{{ else }}<div class="bad">curl: fail ({{ join .Eval.CurlIssues ", " }})</div>{{ end }}{{ end }}
     {{ range .Evidence }}
     <h4>{{ title .Surface }} evidence</h4>
     <ul>

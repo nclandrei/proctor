@@ -109,14 +109,14 @@ func runStatus(store *proctor.Store, cwd string) error {
 			if item.BrowserOK {
 				fmt.Println("  browser: pass")
 			} else {
-				fmt.Printf("  browser: missing (%s)\n", strings.Join(item.BrowserIssues, ", "))
+				fmt.Printf("  browser: fail (%s)\n", strings.Join(item.BrowserIssues, ", "))
 			}
 		}
 		if item.Scenario.CurlRequired {
 			if item.CurlOK {
 				fmt.Println("  curl: pass")
 			} else {
-				fmt.Printf("  curl: missing (%s)\n", strings.Join(item.CurlIssues, ", "))
+				fmt.Printf("  curl: fail (%s)\n", strings.Join(item.CurlIssues, ", "))
 			}
 		}
 	}

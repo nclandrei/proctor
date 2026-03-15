@@ -416,38 +416,16 @@ func validateBrowserEvidence(store *Store, run Run, items []Evidence) (bool, []s
 		return false, []string{"missing browser evidence"}
 	}
 	for _, item := range items {
-		if item.Tier < TierRegisteredRun {
-			continue
-		}
-		if item.Provenance.SessionID == "" {
-			continue
-		}
-		if !assertionsPass(item.Assertions) {
-			continue
-		}
-		hasImage := false
-		hasReport := false
-		artifactError := false
-		for _, artifact := range item.Artifacts {
-			if err := store.VerifyArtifactHash(run, artifact); err != nil {
-				artifactError = true
-				break
-			}
-			switch artifact.Kind {
-			case ArtifactImage:
-				hasImage = true
-			case ArtifactJSONReport:
-				hasReport = true
-			}
-		}
-		if artifactError {
-			continue
-		}
-		if hasImage && hasReport {
+		issues := browserEvidenceIssues(store, run, item)
+		if len(issues) == 0 {
 			return true, nil
 		}
 	}
-	return false, []string{"browser evidence is missing screenshots, report, valid assertions, or hash integrity"}
+	var issues []string
+	for _, item := range items {
+		issues = append(issues, browserEvidenceIssues(store, run, item)...)
+	}
+	return false, dedupeStrings(issues)
 }
 
 func validateCurlEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
@@ -455,34 +433,16 @@ func validateCurlEvidence(store *Store, run Run, items []Evidence) (bool, []stri
 		return false, []string{"missing curl evidence"}
 	}
 	for _, item := range items {
-		if item.Tier < TierWrappedCommand {
-			continue
-		}
-		if len(item.Provenance.Command) == 0 {
-			continue
-		}
-		if !assertionsPass(item.Assertions) {
-			continue
-		}
-		hasTranscript := false
-		artifactError := false
-		for _, artifact := range item.Artifacts {
-			if err := store.VerifyArtifactHash(run, artifact); err != nil {
-				artifactError = true
-				break
-			}
-			if artifact.Kind == ArtifactTranscript {
-				hasTranscript = true
-			}
-		}
-		if artifactError {
-			continue
-		}
-		if hasTranscript {
+		issues := curlEvidenceIssues(store, run, item)
+		if len(issues) == 0 {
 			return true, nil
 		}
 	}
-	return false, []string{"curl evidence is missing a transcript, valid assertions, or hash integrity"}
+	var issues []string
+	for _, item := range items {
+		issues = append(issues, curlEvidenceIssues(store, run, item)...)
+	}
+	return false, dedupeStrings(issues)
 }
 
 func assertionsPass(assertions []Assertion) bool {
@@ -499,6 +459,110 @@ func assertionsPass(assertions []Assertion) bool {
 		}
 	}
 	return passCount > 0
+}
+
+func browserEvidenceIssues(store *Store, run Run, item Evidence) []string {
+	var issues []string
+	if item.Tier < TierRegisteredRun {
+		issues = append(issues, fmt.Sprintf("browser evidence tier %d is below required tier %d", item.Tier, TierRegisteredRun))
+	}
+	if item.Provenance.SessionID == "" {
+		issues = append(issues, "browser evidence is missing a registered session id")
+	}
+	issues = append(issues, assertionIssues(item.Assertions, "browser")...)
+
+	hasImage := false
+	hasReport := false
+	for _, artifact := range item.Artifacts {
+		if err := store.VerifyArtifactHash(run, artifact); err != nil {
+			issues = append(issues, fmt.Sprintf("artifact hash mismatch for %s", artifact.Label))
+			continue
+		}
+		switch artifact.Kind {
+		case ArtifactImage:
+			hasImage = true
+		case ArtifactJSONReport:
+			hasReport = true
+		}
+	}
+	if !hasImage {
+		issues = append(issues, "browser evidence is missing a screenshot")
+	}
+	if !hasReport {
+		issues = append(issues, "browser evidence is missing a browser report")
+	}
+	return dedupeStrings(issues)
+}
+
+func curlEvidenceIssues(store *Store, run Run, item Evidence) []string {
+	var issues []string
+	if item.Tier < TierWrappedCommand {
+		issues = append(issues, fmt.Sprintf("curl evidence tier %d is below required tier %d", item.Tier, TierWrappedCommand))
+	}
+	if len(item.Provenance.Command) == 0 {
+		issues = append(issues, "curl evidence is missing a wrapped command")
+	}
+	issues = append(issues, assertionIssues(item.Assertions, "curl")...)
+
+	hasTranscript := false
+	for _, artifact := range item.Artifacts {
+		if err := store.VerifyArtifactHash(run, artifact); err != nil {
+			issues = append(issues, fmt.Sprintf("artifact hash mismatch for %s", artifact.Label))
+			continue
+		}
+		if artifact.Kind == ArtifactTranscript {
+			hasTranscript = true
+		}
+	}
+	if !hasTranscript {
+		issues = append(issues, "curl evidence is missing a transcript")
+	}
+	return dedupeStrings(issues)
+}
+
+func assertionIssues(assertions []Assertion, surface string) []string {
+	if len(assertions) == 0 {
+		return []string{fmt.Sprintf("%s evidence has no assertions", surface)}
+	}
+	passCount := 0
+	var issues []string
+	for _, assertion := range assertions {
+		if assertion.Result == AssertionPass {
+			passCount++
+			continue
+		}
+		if assertion.Result == AssertionFail {
+			issue := fmt.Sprintf("assertion failed: %s", assertion.Description)
+			if assertion.Expected != "" || assertion.Actual != "" {
+				issue = fmt.Sprintf("%s (expected %s, actual %s)", issue, firstNonEmpty(assertion.Expected, "<empty>"), firstNonEmpty(assertion.Actual, "<empty>"))
+			}
+			if assertion.Message != "" {
+				issue = fmt.Sprintf("%s: %s", issue, assertion.Message)
+			}
+			issues = append(issues, issue)
+		}
+	}
+	if passCount == 0 {
+		issues = append(issues, fmt.Sprintf("%s evidence has no passing assertions", surface))
+	}
+	return issues
+}
+
+func dedupeStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	var deduped []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		deduped = append(deduped, value)
+	}
+	return deduped
 }
 
 func firstNonEmpty(values ...string) string {
