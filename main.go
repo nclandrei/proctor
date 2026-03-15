@@ -28,8 +28,10 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 {
-		fmt.Print(helpText)
+	if text, ok, err := commandHelp(args); err != nil {
+		return err
+	} else if ok {
+		fmt.Print(text)
 		return nil
 	}
 
@@ -43,9 +45,6 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
-	case "--help", "-h", "help":
-		fmt.Print(helpText)
-		return nil
 	case "start":
 		return runStart(store, cwd, args[1:])
 	case "status":
@@ -335,66 +334,3 @@ func splitArgsAtDoubleDash(args []string) ([]string, []string) {
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }
-
-const helpText = `proctor - Enforce manual verification contracts for agent-built software.
-
-Proctor does not drive the browser for you. It creates a verification contract,
-forces you to think through the important scenarios, records evidence against
-that contract, and refuses completion until the required proof exists.
-
-For user-visible web features:
-  - browser verification is required
-  - direct HTTP verification is required when backend or protocol risk matters
-  - edge cases are first-class scenarios, not optional notes
-
-Workflow:
-  proctor start
-  proctor status
-  proctor record browser ...
-  proctor record curl ...
-  proctor done
-  proctor report
-
-Start questions:
-  - feature / flow name
-  - browser URL
-  - whether direct HTTP verification is required
-  - curl endpoint(s), if needed
-  - happy path
-  - main failure path
-  - relevant edge cases by category
-
-Browser evidence requirements:
-  - a registered session id
-  - at least one screenshot
-  - a browser report JSON artifact
-  - the browser report must include a desktop final URL
-  - if you attach a mobile screenshot, the report must include mobile results with a final URL
-  - at least one passing assertion
-  - console/page/network/http issue counts default to zero unless explicitly asserted otherwise
-  - supported assertions include:
-    - final_url contains /dashboard
-    - console_errors = 0
-    - failed_requests = 0
-    - desktop.http_errors = 1
-    - desktop_screenshot = true
-    - mobile.final_url contains /login
-
-Curl evidence requirements:
-  - command wrapped by proctor
-  - transcript artifact
-  - at least one passing assertion
-  - supported assertions include:
-    - status = 401
-    - body contains invalid
-    - header.content-type contains application/json
-    - exit_code = 0
-
-Done checks:
-  - every required scenario has browser evidence
-  - happy and failure paths have curl evidence when required
-  - browser evidence includes desktop and mobile screenshots somewhere in the run
-  - assertions exist and hashes still match
-
-Artifacts are stored outside the repo by default under ~/.proctor.
-`

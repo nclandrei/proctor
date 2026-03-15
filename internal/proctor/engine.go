@@ -11,6 +11,31 @@ import (
 )
 
 func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
+	curlMode := strings.ToLower(strings.TrimSpace(opts.CurlMode))
+	switch curlMode {
+	case "required", "skip":
+	default:
+		return Run{}, fmt.Errorf("--curl must be either required or skip")
+	}
+	if strings.TrimSpace(opts.Feature) == "" {
+		return Run{}, fmt.Errorf("--feature is required")
+	}
+	if strings.TrimSpace(opts.BrowserURL) == "" {
+		return Run{}, fmt.Errorf("--url is required")
+	}
+	if strings.TrimSpace(opts.HappyPath) == "" {
+		return Run{}, fmt.Errorf("--happy-path is required")
+	}
+	if strings.TrimSpace(opts.FailurePath) == "" {
+		return Run{}, fmt.Errorf("--failure-path is required")
+	}
+	if curlMode == "required" && len(normalizedLines(opts.CurlEndpoints)) == 0 {
+		return Run{}, fmt.Errorf("--curl-endpoint is required when --curl required")
+	}
+	if curlMode == "skip" && strings.TrimSpace(opts.CurlSkipReason) == "" {
+		return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
+	}
+
 	repoRoot := RepoRoot(cwd)
 	repoSlug, err := RepoSlug(repoRoot)
 	if err != nil {
@@ -23,7 +48,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		RepoSlug:       repoSlug,
 		Feature:        strings.TrimSpace(opts.Feature),
 		BrowserURL:     strings.TrimSpace(opts.BrowserURL),
-		CurlRequired:   strings.EqualFold(opts.CurlMode, "required"),
+		CurlRequired:   curlMode == "required",
 		CurlEndpoints:  normalizedLines(opts.CurlEndpoints),
 		CurlSkipReason: strings.TrimSpace(opts.CurlSkipReason),
 		Status:         StatusInProgress,

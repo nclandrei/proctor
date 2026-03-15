@@ -61,6 +61,43 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 	if !strings.Contains(reportText, "Scenario Rollup") || !strings.Contains(reportText, "--bg: #081017") {
 		t.Fatalf("expected report html to include the dark rollup layout, got:\n%s", reportText)
 	}
+	if !strings.Contains(reportText, `<meta name="color-scheme" content="dark">`) || !strings.Contains(reportText, "color-scheme: dark;") {
+		t.Fatalf("expected report html to force dark mode, got:\n%s", reportText)
+	}
+}
+
+func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = CreateRun(store, repo, StartOptions{
+		Feature:     "missing curl mode",
+		BrowserURL:  "http://127.0.0.1:3000",
+		HappyPath:   "happy",
+		FailurePath: "failure",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--curl must be either required or skip") {
+		t.Fatalf("expected explicit curl mode validation, got %v", err)
+	}
+
+	_, err = CreateRun(store, repo, StartOptions{
+		Feature:        "skip without reason",
+		BrowserURL:     "http://127.0.0.1:3000",
+		CurlMode:       "skip",
+		HappyPath:      "happy",
+		FailurePath:    "failure",
+		EdgeCaseInputs: []string{"validation and malformed input=N/A: covered elsewhere"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "--curl-skip-reason is required when --curl skip") {
+		t.Fatalf("expected curl skip reason validation, got %v", err)
+	}
 }
 
 func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {

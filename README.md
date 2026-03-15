@@ -1,98 +1,238 @@
 # Proctor
 
-Proctor is an enforcement layer for agentic manual testing.
+Proctor makes a coding agent prove it manually tested its own work before it can say "done".
 
-The problem is not that agents cannot click buttons, run `curl`, or take screenshots. They can. The problem is that nothing forces them to think through the risky cases, gather real proof, and block themselves from declaring "done" before that proof exists.
+The point is not browser automation by itself. Agents can already click buttons, run `curl`, and take screenshots. The missing piece is the contract:
 
-Showboat is the closest reference in spirit: it captures proof of work and discourages hand-wavy reporting. Proctor takes the next step. It creates a manual-testing contract, requires real evidence against that contract, and refuses completion until the contract is satisfied.
+- what had to be tested
+- what counted as proof
+- what blocked completion
 
-## Thesis
+Proctor creates that contract, records evidence against it, and refuses completion until the required proof exists.
 
-Agentic software development needs an equivalent of red-green-refactor for product verification.
+The CLI is intentionally long-form. A fresh agent should be able to start with `proctor --help`, learn the workflow, and complete a run without reading Proctor's source.
 
-Today the workflow looks like this:
+## Install
 
-- the agent implements a feature
-- the agent adds or updates tests
-- the agent may or may not manually verify the product
-- the final answer often depends on trust
+```bash
+brew tap nclandrei/tap
+brew install nclandrei/tap/proctor
+```
 
-Proctor changes that contract:
+## Who This Is For
 
-- the agent must declare the feature or flow it is verifying
-- Proctor interrogates the agent for the relevant surface and targets
-- Proctor requires the agent to think through happy path, failure path, and all materially relevant edge cases
-- the agent performs the checks with its own tools
-- only recorded evidence counts
-- `proctor done` fails until every obligation is satisfied
+Proctor is agent-agnostic. It is meant to work from:
 
-The wedge is not "another browser automation tool". The wedge is the missing enforcement layer between coding agents and verification tools.
+- Codex
+- Claude Code
+- any other coding agent with shell access
 
-## Product Position
+It does not assume one agent runtime, one browser driver, or one editor.
+
+## What Proctor Does
 
 Proctor is not:
 
 - a browser automation framework
 - an iOS automation framework
-- a CLI/TUI runtime
 - a hosted QA platform
 
 Proctor is:
 
-- a contract engine
-- an evidence validator
+- a manual-test contract generator
+- an evidence recorder
 - a completion gate
 - a shareable reporting layer
 
-It should work across web, iOS, CLI, and API surfaces, but it should not try to replace the best execution tool for each one.
+## The Human Prompt
 
-## Core Decisions
+This is the kind of prompt Proctor is designed for:
 
-These are the current product decisions for the initial implementation.
+```text
+We just implemented the new authentication flow.
+Use proctor --help to manually test it.
+```
 
-### 1. Proctor does not act as the browser agent
+That prompt should be enough. The agent should not need extra explanation from the human.
 
-Proctor does not try to navigate pages, recover from browser failures, or improvise shell commands better than the coding agent can.
+## Quick Start
 
-Instead:
+### 1. Create the Contract
 
-- the agent tells Proctor what it is testing
-- Proctor tells the agent what proof is required
-- the agent uses its own tools to execute the checks
-- the agent records evidence with Proctor
+For user-visible web work, start here:
 
-This keeps Proctor focused on enforcement instead of becoming a mediocre browser or mobile tool.
+```bash
+proctor start \
+  --feature "new authentication flow" \
+  --url http://127.0.0.1:3000/login \
+  --curl required \
+  --curl-endpoint "POST /api/login" \
+  --happy-path "Valid credentials redirect to the dashboard." \
+  --failure-path "Invalid credentials show an error and keep the user on /login." \
+  --edge-case "validation and malformed input=Bad email shows inline validation" \
+  --edge-case "empty or missing input=Empty email and password show required-field errors" \
+  --edge-case "retry or double-submit=Second submit does not create duplicate requests" \
+  --edge-case "loading, latency, and race conditions=Button stays disabled while the request is pending" \
+  --edge-case "network or server failure=500 response shows a retryable error state" \
+  --edge-case "auth and session state=Already signed-in users are redirected away from /login" \
+  --edge-case "refresh, back-navigation, and state persistence=Refresh preserves the authenticated state" \
+  --edge-case "mobile or responsive behavior=Login form stays usable at mobile width" \
+  --edge-case "accessibility and keyboard behavior=Enter submits from the password field; tab order stays correct" \
+  --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
+```
 
-### 2. Browser verification is the default for user-visible features
+If the flow is mostly client-side and there is no meaningful backend or protocol risk, skip `curl` with an explicit reason:
 
-For user-visible features, browser verification is required at minimum.
+```bash
+proctor start \
+  --feature "What Did I Just Watch finder" \
+  --url http://127.0.0.1:4174/kimarite \
+  --curl skip \
+  --curl-skip-reason "Static client-side filter UI with no separate backend contract." \
+  --happy-path "Selecting plain-language finish and approach clues narrows the library and updates the URL." \
+  --failure-path "A user can back out with Not sure yet and return to the broad library without broken state." \
+  --edge-case "validation and malformed input=N/A: no freeform input, only preset links" \
+  --edge-case "empty or missing input=Starting with no clue selected still shows the broad library and finder." \
+  --edge-case "retry or double-submit=N/A: idempotent client-side link navigation only" \
+  --edge-case "loading, latency, and race conditions=N/A: static client-side filter state with no async mutation" \
+  --edge-case "network or server failure=N/A: no feature-specific backend dependency" \
+  --edge-case "auth and session state=N/A: public catalog page" \
+  --edge-case "refresh, back-navigation, and state persistence=Direct filtered URL preserves the selected clue state on load." \
+  --edge-case "mobile or responsive behavior=Filtered finder state remains readable and usable on mobile." \
+  --edge-case "accessibility and keyboard behavior=N/A: this pass is visual only" \
+  --edge-case "any feature-specific risks=N/A: reset behavior is covered by the main failure path"
+```
 
-For HTTP-backed features, `curl` or equivalent API verification should be required when there is meaningful backend or protocol risk. It should not be mandatory for every purely visual or mostly client-side change.
+### 2. Capture Real Browser Evidence
 
-In practice:
+Proctor does not drive the browser for you. Use your own browser tooling to produce:
 
-- web UI features should require browser evidence
-- HTTP-backed flows with meaningful contract risk should require browser plus API evidence
-- CLI features should require real terminal verification
-- iOS features should require simulator-backed visual verification
+- a desktop screenshot
+- a mobile screenshot when mobile or responsive proof matters
+- a `report.json` file with final URL and issue counts
 
-Proctor should challenge the agent before allowing `curl` to be skipped. A skip should require a reason such as:
+Proctor only needs a small report shape:
 
-- the change is primarily visual or client-side
-- there is no meaningful backend contract risk
-- the important edge cases can be exercised reliably in the browser
-- precise status or body assertions are not important for this flow
+```json
+{
+  "desktop": {
+    "finalUrl": "http://127.0.0.1:3000/dashboard",
+    "issues": {
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "pageErrors": 0,
+      "failedRequests": 0,
+      "httpErrors": 0
+    }
+  },
+  "mobile": {
+    "finalUrl": "http://127.0.0.1:3000/dashboard",
+    "issues": {
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "pageErrors": 0,
+      "failedRequests": 0,
+      "httpErrors": 0
+    }
+  }
+}
+```
 
-### 3. No fixed minimum edge-case count
+### 3. Attach Browser Evidence
 
-Proctor should not let the agent cut corners with "list at least 2 edge cases".
+Each `record browser` command attaches one browser run to one scenario:
 
-Instead, the agent must enumerate all materially relevant edge cases it can think of. Proctor should require coverage by category and force the agent to either:
+```bash
+proctor record browser \
+  --scenario happy-path \
+  --session auth-browser-1 \
+  --report /abs/path/report.json \
+  --screenshot desktop=/abs/path/desktop.png \
+  --screenshot mobile=/abs/path/mobile.png \
+  --assert 'final_url contains /dashboard' \
+  --assert 'desktop_screenshot = true' \
+  --assert 'mobile_screenshot = true'
+```
 
-- provide one or more scenarios for that category, or
-- explicitly mark it `N/A` with a reason
+You can reuse one browser report for multiple scenarios if it genuinely proves each one.
 
-Suggested categories:
+### 4. Attach HTTP Evidence When Required
+
+When `curl` matters, wrap the real command:
+
+```bash
+proctor record curl \
+  --scenario failure-path \
+  --assert 'status = 401' \
+  --assert 'body contains invalid' \
+  --assert 'header.content-type contains application/json' \
+  -- \
+  curl -si -X POST http://127.0.0.1:3000/api/login \
+    -H 'content-type: application/json' \
+    -d '{"email":"demo@example.com","password":"wrong"}'
+```
+
+### 5. Check Coverage And Finish
+
+```bash
+proctor status
+proctor done
+proctor report
+```
+
+`proctor done` is the real completion gate. If it fails, the run is not complete.
+
+## What Counts As Proof
+
+Freehand notes do not count.
+
+For browser evidence, Proctor expects:
+
+- a session id string
+- at least one screenshot
+- a report JSON artifact
+- at least one passing assertion
+
+For curl evidence, Proctor expects:
+
+- a real wrapped command
+- the captured transcript
+- at least one passing assertion
+
+Provenance alone is not enough. Evidence must also include scenario-specific assertions.
+
+## Browser Assertions
+
+Examples:
+
+- `final_url contains /dashboard`
+- `final_url = http://127.0.0.1:3000/login`
+- `console_errors = 0`
+- `failed_requests = 0`
+- `http_errors = 1`
+- `desktop_screenshot = true`
+- `mobile_screenshot = true`
+- `mobile.final_url contains /login`
+
+If you do not explicitly assert browser health counts, Proctor adds implicit zero-issue assertions for:
+
+- console errors
+- page errors
+- failed requests
+- HTTP errors
+
+That means the default policy is "clean browser run unless you explicitly say otherwise".
+
+## Edge Cases Are First-Class
+
+Proctor does not accept "give me two edge cases".
+
+Each category must be covered either by:
+
+- one or more concrete scenarios
+- or `N/A` with a reason
+
+Current categories:
 
 - validation and malformed input
 - empty or missing input
@@ -105,425 +245,70 @@ Suggested categories:
 - accessibility and keyboard behavior
 - any feature-specific risks
 
-### 4. Only tool-recorded evidence counts
+## Commands
 
-Freehand notes are useful, but they are not proof.
+- `proctor --help`
+  The long-form agent onboarding surface.
+- `proctor start`
+  Creates the verification contract.
+- `proctor status`
+  Shows what still passes or fails.
+- `proctor record browser`
+  Attaches browser evidence to one scenario.
+- `proctor record curl`
+  Wraps and records one real HTTP command for one scenario.
+- `proctor done`
+  Fails until the contract is satisfied.
+- `proctor report`
+  Prints the generated output paths.
 
-Proof should be derived from wrapper-recorded evidence such as:
+Use subcommand help for exact flags:
 
-- screenshots
-- browser console and network reports
-- curl request and response transcripts
-- CLI pane captures and screenshots
-- iOS screenshots and logs
-- assertions tied to a declared obligation
+```bash
+proctor start --help
+proctor record browser --help
+proctor record curl --help
+proctor done --help
+```
 
-### 5. Evidence trust model
+## Outputs
 
-Perfect local tamper-proofing is not realistic when the agent has shell access. Proctor should optimize for making fake verification expensive and obvious, while making real verification the easiest path.
-
-Proposed trust tiers:
-
-- `Tier 0`: freehand notes. These are commentary only and never satisfy obligations.
-- `Tier 1`: imported artifacts. Useful for adoption and fallback, but explicitly weak.
-- `Tier 2`: Proctor-observed command evidence. Proctor wraps a command and records argv, cwd, timestamps, exit status, stdout or stderr, hashes, and assertions.
-- `Tier 3`: Proctor-owned session evidence. Evidence is tied to a session Proctor created or registered, such as a browser run, iOS simulator session, or similar higher-trust runtime context.
-
-Required minimums:
-
-- browser obligations must require `Tier 3` evidence
-- iOS obligations must require `Tier 3` evidence
-- CLI obligations may start at `Tier 2`, with room to tighten later
-- API and `curl` obligations should require at least `Tier 2`
-
-Mandatory visual proof:
-
-- browser obligations must require visual artifacts such as screenshots
-- iOS obligations must require visual artifacts such as simulator screenshots
-
-Provenance alone is not enough. An obligation must require both:
-
-- valid provenance for the evidence tier
-- scenario-specific assertions tied to the contract
-
-Examples:
-
-- a screenshot alone does not prove "login success"
-- a curl transcript alone does not prove "invalid login handled correctly"
-
-The evidence must also include the expected claim, such as:
-
-- dashboard visible after successful login
-- `401` returned for invalid credentials
-- no duplicate requests on double-submit
-- mobile layout remains usable
-- no failed network requests for the exercised path
-
-### 6. Proctor blocks completion
-
-The key command is `proctor done`.
-
-`proctor done` should exit non-zero until:
-
-- the contract exists
-- every applicable obligation has evidence
-- required artifacts are present
-- the evidence passes validation
-
-If nobody checks `proctor done`, Proctor is just a good habit. If the agent session, wrapper, or CI checks `proctor done`, Proctor becomes real enforcement.
-
-### 7. Artifacts stay out of the repo by default
-
-Proctor should not clutter repositories or force engineers to update `.gitignore`.
-
-Default artifact path:
+Artifacts live outside the repo by default:
 
 ```text
 ~/.proctor/runs/<repo-slug>/<run-id>/
 ```
 
-This directory should contain the contract, artifacts, and generated reports for a single run.
+Important files:
 
-### 8. Proctor generates a shareable final document
-
-Proctor should produce a final document inspired by Showboat, but generated from recorded evidence instead of freehand markdown.
-
-There should be two output layers:
-
-- raw evidence artifacts, which are the machine-trusted source of truth
-- generated reports, which are the human-facing rendering of that evidence
-
-Raw evidence artifacts should include things like:
-
-- screenshots
-- browser JSON reports
-- curl transcripts
-- logs
-- pane captures
-- simulator screenshots
-
-Generated reports should include things like:
-
+- `run.json`
+- `evidence.jsonl`
 - `contract.md`
 - `report.html`
+- `artifacts/`
 
-Important rule:
+`contract.md` and `report.html` are derived from the recorded evidence. They are human-facing outputs, not the source of truth.
 
-- reports are derived from evidence
-- reports do not count as evidence by themselves
+`report.html` is always rendered in dark mode.
 
-Proposed outputs:
+## Current Scope
 
-- `contract.md`: the declared flow, required obligations, and pass or fail status
-- `report.html`: a shareable review artifact with screenshots, logs, curl transcripts, and a pass matrix
-- `artifacts/`: raw screenshots, transcripts, reports, and metadata
+The current implementation is strongest for web:
 
-The report should be useful for:
+- browser evidence is fully enforced
+- `curl` is supported when backend or protocol risk matters
 
-- the engineer who asked for verification
-- another agent reviewing the work
-- a human reviewer who wants proof without replaying the session
+iOS and CLI are part of the design, but not yet implemented in the same depth.
 
-## How Proctor Works
+## Development
 
-Proctor only knows what the agent tells it plus what it can inspect locally:
-
-- CLI arguments
-- interactive answers
-- current working directory
-- repository files
-- git state
-- environment variables
-- previously recorded run data
-
-It cannot read the hidden conversation context. That means the agent must provide the feature and targets explicitly.
-
-The flow should be:
-
-1. the human tells the agent to use `proctor --help`
-2. the agent reads the help text and starts a run
-3. Proctor interrogates the agent about the flow
-4. Proctor creates the verification contract
-5. the agent uses browser, shell, iOS, or CLI tooling to execute the checks
-6. the agent records evidence against the contract
-7. `proctor done` decides pass or fail
-8. Proctor generates a shareable report
-
-## Example Agent Flow
-
-This is the current target interaction model.
-
-```text
-human: hey man I want to test this new feature, use proctor --help to manually test it
-
-ai agent: ok, I am calling proctor --help now
-
-tool: proctor --help
-
-proctor:
-  Proctor enforces manual verification contracts for agent-built software.
-
-  For user-visible web features:
-    - browser verification is required
-    - curl/API verification is required when there is meaningful backend or protocol risk
-
-  You must provide:
-    - the feature or flow name
-    - the browser URL
-    - the HTTP endpoint(s), if applicable
-    - the happy path
-    - the main failure path
-    - all materially relevant edge cases you can think of
-
-  Proctor does not drive the browser for you. It defines the contract and
-  validates the proof you bring back.
-
-  Typical workflow:
-    proctor start
-    proctor status
-    proctor record browser ...
-    proctor record curl ...
-    proctor done
-    proctor report
-
-  All artifacts are stored outside the repo under ~/.proctor by default.
-
-ai agent: ok, I am starting proctor
-
-tool: proctor start
-
-proctor: what flow are you testing?
-ai agent: new authentication flow
-
-proctor: browser URL?
-ai agent: http://127.0.0.1:3000/login
-
-proctor: curl endpoint(s)?
-ai agent:
-  - POST /api/login
-  - POST /api/logout
-
-proctor: describe the happy path
-ai agent: valid email and password redirect to dashboard and create a session
-
-proctor: describe the main failure path
-ai agent: invalid password shows an error and returns 401 without creating a session
-
-proctor: list all materially relevant edge cases you can think of, grouped by category.
-for any category that does not apply, mark it N/A with a reason.
-
-ai agent:
-  validation and malformed input:
-    - invalid email format shows inline validation
-    - password below minimum length is rejected
-    - email with leading and trailing spaces is normalized correctly
-
-  empty or missing input:
-    - empty email and password show required-field errors
-
-  retry or double-submit:
-    - double-clicking submit does not create duplicate requests or duplicate sessions
-
-  loading, latency, and race conditions:
-    - slow response keeps button disabled and shows loading state
-    - repeated Enter key during loading does not submit twice
-
-  network or server failure:
-    - 500 response shows generic failure UI
-    - offline or network drop shows retryable error state
-
-  auth and session state:
-    - already-authenticated user visiting /login is redirected away
-    - logout clears session and protected pages require login again
-
-  refresh, back-navigation, and state persistence:
-    - refresh after login preserves authenticated state
-    - back navigation does not show stale logged-out login page after successful auth
-
-  mobile or responsive behavior:
-    - login page layout remains usable on mobile width
-    - error messages remain visible without overlap on small screens
-
-  accessibility and keyboard behavior:
-    - tab order is correct
-    - Enter submits from password field
-    - error message is exposed correctly
-
-  any feature-specific risks:
-    - remember-me toggle persists session length correctly
-
-proctor:
-  contract created
-
-  required proof:
-    - browser happy path
-    - browser main failure path
-    - browser proof for each declared edge case above
-    - desktop screenshot of success state
-    - mobile screenshot of success state
-    - browser console clean for exercised flows
-    - browser network report for exercised flows
-    - curl success transcript for login because auth has backend contract risk
-    - curl failure transcript for invalid login
-    - curl or API transcripts for relevant backend edge cases
-    - final generated contract and report
-
-  artifacts path:
-    ~/.proctor/runs/<repo-slug>/<run-id>/
-
-  live documents:
-    contract.md
-    report.html
-
-  use your browser and shell tools now, then record evidence
-
-ai agent:
-  uses browser tooling to exercise the declared flows
-  uses curl to exercise the declared HTTP cases
-  records screenshots, console and network reports, and curl transcripts with proctor
-
-tool: proctor status
-
-proctor:
-  complete:
-    - browser happy path
-    - browser failure path
-    - validation cases
-    - desktop screenshot
-    - curl success transcript
-
-  missing:
-    - double-submit browser proof
-    - mobile screenshot
-    - offline or network failure proof
-    - curl invalid-login transcript
-    - keyboard accessibility proof
-
-ai agent:
-  performs remaining checks and records them
-
-tool: proctor done
-
-proctor:
-  PASS
-  all required obligations satisfied
-
-  generated:
-    ~/.proctor/runs/<repo-slug>/<run-id>/contract.md
-    ~/.proctor/runs/<repo-slug>/<run-id>/report.html
-    ~/.proctor/runs/<repo-slug>/<run-id>/artifacts/
-
-tool: proctor report
-
-proctor:
-  shareable report ready
+```bash
+go test ./...
+go run . --help
 ```
 
-## Initial Command Model
+If you are changing the browser reporting or CLI help, rerun a fresh-agent test. The target bar is simple:
 
-The initial implementation should ship these commands:
-
-```text
-proctor --help
-proctor start
-proctor status
-proctor record browser ...
-proctor record curl ...
-proctor done
-proctor report
-```
-
-Notes:
-
-- `--help` should be long-form and agent-readable, similar in spirit to Showboat
-- the interactive questioning belongs in `proctor start`, not inside `--help`
-- `status` is primarily for the agent while it is working, but it should stay readable by a human reviewer
-- `record` commands should validate evidence and attach it to specific obligations
-- `done` is the gate
-- `report` renders the shareable output from the evidence store
-
-## Implementation Decisions
-
-The initial implementation should use Go.
-
-Reasons:
-
-- Proctor is primarily a CLI orchestration tool
-- the work is mostly process execution, file I/O, JSON, and report generation
-- cross-platform single-binary distribution matters
-- Go keeps the initial implementation faster to ship and easier to evolve
-
-The initial implementation should fully support the web flow, not a toy slice of it.
-
-That means:
-
-- shared core is built now
-- browser flow is built now
-- `curl` support is built now when backend or protocol risk applies
-- `contract.md` and `report.html` are both built now
-- the product should feel complete for web from the first implementation
-
-The shared core should be designed so iOS and CLI can be added later without reshaping the system.
-
-That means keeping clean extension points for:
-
-- run creation
-- contract creation
-- evidence recording
-- evidence validation
-- report rendering
-- surface-specific rules
-
-The next surfaces should be iOS and CLI, but they do not need to be implemented before web is fully working.
-
-## Non-Goals For The Initial Implementation
-
-- full autonomous test execution
-- hosted dashboards
-- replacing browser automation frameworks
-- replacing mobile automation frameworks
-- inferring the whole task from hidden LLM conversation state
-
-## Current Gaps
-
-These are the main product gaps or risks that still need design work.
-
-### 1. Anti-gaming and evidence provenance
-
-If the agent can attach arbitrary files or summarize its own results freely, it can game the system. Proctor needs a clear trust model for what counts as first-party evidence and how that evidence is tied to a run.
-
-### 2. Obligation quality
-
-If the questioning is weak, the contract will be weak. Proctor needs a strong interrogation flow that pushes the agent toward real risk analysis instead of generic happy-path thinking.
-
-### 3. Evidence ingestion UX
-
-We still need to decide whether `proctor record` should wrap external tools directly, ingest outputs after the fact, or support both. This affects trust, ergonomics, and how easy it is for agents to adopt.
-
-### 4. Replayability versus proof
-
-Some evidence is easiest to store as screenshots and logs, but the best evidence is often replayable. We still need to decide how much Proctor should care about re-runnable steps versus static artifacts.
-
-### 5. Surface-specific richness
-
-The web story is strongest so far. CLI and iOS need equally good contract semantics, artifact expectations, and examples so Proctor does not become "mostly a web tool".
-
-### 6. Guard mode
-
-`proctor done` is only a real enforcement boundary if something checks it. A future wrapper or CI mode will likely matter a lot for adoption and integrity.
-
-### 7. Project configuration
-
-The current design can start fully interactive, but real projects will eventually want defaults for routes, endpoints, schemes, commands, report preferences, and policy tuning.
-
-## Locked Questions
-
-These product choices are considered locked for now:
-
-- the implementation language is Go
-- the initial implementation fully supports web
-- browser verification is mandatory for user-visible web work
-- `curl` is supported and required when backend or protocol risk is meaningful
-- `status` is primarily for the agent, but stays readable by humans
-- reports are generated from evidence and do not count as proof themselves
-- the shared core is built to support future iOS and CLI adapters
+- a new agent should start with `proctor --help`
+- it should not need to read Proctor's source
+- it should be able to create a run, record evidence, and finish with `proctor done`
