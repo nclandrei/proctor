@@ -227,8 +227,7 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	}
 
 	eval := Evaluation{Complete: true}
-	hasDesktop := false
-	hasMobile := false
+	hasDesktop, hasMobile := browserVisualCoverage(store, run, evidence)
 
 	for _, scenario := range run.Scenarios {
 		scenarioEval := ScenarioEvaluation{Scenario: scenario}
@@ -239,21 +238,6 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, browserEvidence)
 			if !scenarioEval.BrowserOK {
 				eval.Complete = false
-			} else {
-				for _, item := range browserEvidence {
-					for _, artifact := range item.Artifacts {
-						if artifact.Kind != ArtifactImage {
-							continue
-						}
-						label := strings.ToLower(artifact.Label)
-						if strings.Contains(label, "desktop") {
-							hasDesktop = true
-						}
-						if strings.Contains(label, "mobile") {
-							hasMobile = true
-						}
-					}
-				}
 			}
 		}
 
@@ -277,6 +261,32 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	}
 
 	return eval, nil
+}
+
+func browserVisualCoverage(store *Store, run Run, evidence []Evidence) (bool, bool) {
+	hasDesktop := false
+	hasMobile := false
+	for _, item := range evidence {
+		if item.Surface != SurfaceBrowser || item.Tier < TierRegisteredRun {
+			continue
+		}
+		for _, artifact := range item.Artifacts {
+			if artifact.Kind != ArtifactImage {
+				continue
+			}
+			if err := store.VerifyArtifactHash(run, artifact); err != nil {
+				continue
+			}
+			label := strings.ToLower(artifact.Label)
+			if strings.Contains(label, "desktop") {
+				hasDesktop = true
+			}
+			if strings.Contains(label, "mobile") {
+				hasMobile = true
+			}
+		}
+	}
+	return hasDesktop, hasMobile
 }
 
 func CompleteRun(store *Store, run Run) (Evaluation, error) {

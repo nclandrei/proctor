@@ -525,6 +525,9 @@ func TestBrowserReportRequiresDesktopFinalURL(t *testing.T) {
 	if !containsSubstring(eval.ScenarioEvaluations[0].BrowserIssues, "browser report is missing a desktop final URL") {
 		t.Fatalf("expected desktop final URL issue, got %#v", eval.ScenarioEvaluations[0].BrowserIssues)
 	}
+	if containsSubstring(eval.GlobalMissing, "desktop screenshot") || containsSubstring(eval.GlobalMissing, "mobile screenshot") {
+		t.Fatalf("expected global screenshot coverage to count attached screenshots even when the scenario fails, got %#v", eval.GlobalMissing)
+	}
 }
 
 func sampleStartOptions() StartOptions {
