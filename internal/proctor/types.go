@@ -95,7 +95,10 @@ type Provenance struct {
 
 type Assertion struct {
 	Description string `json:"description"`
+	Expected    string `json:"expected,omitempty"`
+	Actual      string `json:"actual,omitempty"`
 	Result      string `json:"result"`
+	Message     string `json:"message,omitempty"`
 }
 
 type Artifact struct {
@@ -108,14 +111,29 @@ type Artifact struct {
 }
 
 type BrowserData struct {
-	URL       string `json:"url"`
-	SessionID string `json:"session_id"`
-	Tool      string `json:"tool"`
+	URL       string                `json:"url"`
+	SessionID string                `json:"session_id"`
+	Tool      string                `json:"tool"`
+	Desktop   BrowserDeviceSummary  `json:"desktop"`
+	Mobile    *BrowserDeviceSummary `json:"mobile,omitempty"`
+}
+
+type BrowserDeviceSummary struct {
+	Title           string `json:"title"`
+	FinalURL        string `json:"final_url"`
+	ConsoleErrors   int    `json:"console_errors"`
+	ConsoleWarnings int    `json:"console_warnings"`
+	PageErrors      int    `json:"page_errors"`
+	FailedRequests  int    `json:"failed_requests"`
+	HTTPErrors      int    `json:"http_errors"`
 }
 
 type CurlData struct {
-	Command  []string `json:"command"`
-	ExitCode int      `json:"exit_code"`
+	Command        []string          `json:"command"`
+	ExitCode       int               `json:"exit_code"`
+	ResponseStatus int               `json:"response_status,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Body           string            `json:"body,omitempty"`
 }
 
 type StartOptions struct {

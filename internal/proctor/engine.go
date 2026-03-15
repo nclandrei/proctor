@@ -81,10 +81,6 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if len(opts.Screenshots) == 0 {
 		return fmt.Errorf("browser evidence requires at least one --screenshot")
 	}
-	assertions := buildAssertions(opts.PassAssertions, opts.FailAssertions)
-	if len(assertions) == 0 {
-		return fmt.Errorf("browser evidence requires at least one assertion")
-	}
 
 	var artifacts []Artifact
 	for label, source := range opts.Screenshots {
@@ -102,6 +98,18 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	reportArtifact.Kind = ArtifactJSONReport
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
+
+	reportData, err := ParseBrowserReport(opts.ReportPath)
+	if err != nil {
+		return err
+	}
+	assertions, err := EvaluateBrowserAssertions(opts.PassAssertions, opts.FailAssertions, reportData, artifacts)
+	if err != nil {
+		return err
+	}
+	if len(assertions) == 0 {
+		return fmt.Errorf("browser evidence requires at least one assertion")
+	}
 
 	evidence := Evidence{
 		ID:         newID("ev"),
@@ -124,6 +132,8 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 			URL:       run.BrowserURL,
 			SessionID: opts.SessionID,
 			Tool:      firstNonEmpty(opts.Tool, "agent-browser"),
+			Desktop:   reportData.Desktop,
+			Mobile:    reportData.Mobile,
 		},
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
@@ -143,11 +153,6 @@ func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 	if len(opts.Command) == 0 {
 		return fmt.Errorf("curl evidence requires a command after --")
 	}
-	assertions := buildAssertions(opts.PassAssertions, opts.FailAssertions)
-	if len(assertions) == 0 {
-		return fmt.Errorf("curl evidence requires at least one assertion")
-	}
-
 	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
 	cmd.Dir = run.RepoRoot
 	var stdout bytes.Buffer
@@ -171,6 +176,21 @@ func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 	}
 	transcript.Kind = ArtifactTranscript
 	transcript.MediaType = "text/plain"
+	statusCode, headers, body := ParseHTTPTranscript(stdout.String() + stderr.String())
+	curlData := CurlData{
+		Command:        opts.Command,
+		ExitCode:       exitCode,
+		ResponseStatus: statusCode,
+		Headers:        headers,
+		Body:           body,
+	}
+	assertions, err := EvaluateCurlAssertions(opts.PassAssertions, opts.FailAssertions, curlData)
+	if err != nil {
+		return err
+	}
+	if len(assertions) == 0 {
+		return fmt.Errorf("curl evidence requires at least one assertion")
+	}
 
 	evidence := Evidence{
 		ID:         newID("ev"),
@@ -189,10 +209,7 @@ func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 		},
 		Assertions: assertions,
 		Artifacts:  []Artifact{transcript},
-		Curl: &CurlData{
-			Command:  opts.Command,
-			ExitCode: exitCode,
-		},
+		Curl:       &curlData,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
 		return err
@@ -286,7 +303,11 @@ func writeReports(store *Store, run Run) error {
 	if err != nil {
 		return err
 	}
-	markdown, html, err := RenderReports(run, eval)
+	evidence, err := store.LoadEvidence(run)
+	if err != nil {
+		return err
+	}
+	markdown, html, err := RenderReports(run, eval, evidence)
 	if err != nil {
 		return err
 	}
@@ -302,17 +323,6 @@ func writeReports(store *Store, run Run) error {
 		return err
 	}
 	return nil
-}
-
-func buildAssertions(pass, fail []string) []Assertion {
-	var assertions []Assertion
-	for _, value := range normalizedLines(pass) {
-		assertions = append(assertions, Assertion{Description: value, Result: AssertionPass})
-	}
-	for _, value := range normalizedLines(fail) {
-		assertions = append(assertions, Assertion{Description: value, Result: AssertionFail})
-	}
-	return assertions
 }
 
 func normalizedLines(values []string) []string {

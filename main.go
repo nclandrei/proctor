@@ -369,11 +369,22 @@ Browser evidence requirements:
   - at least one screenshot
   - a browser report JSON artifact
   - at least one passing assertion
+  - supported assertions include:
+    - final_url contains /dashboard
+    - console_errors = 0
+    - failed_requests = 0
+    - desktop_screenshot = true
+    - mobile.final_url contains /login
 
 Curl evidence requirements:
   - command wrapped by proctor
   - transcript artifact
   - at least one passing assertion
+  - supported assertions include:
+    - status = 401
+    - body contains invalid
+    - header.content-type contains application/json
+    - exit_code = 0
 
 Done checks:
   - every required scenario has browser evidence
