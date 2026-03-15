@@ -48,7 +48,7 @@ It should work across web, iOS, CLI, and API surfaces, but it should not try to 
 
 ## Core Decisions
 
-These are the current product decisions for v0.
+These are the current product decisions for the initial implementation.
 
 ### 1. Proctor does not act as the browser agent
 
@@ -133,7 +133,7 @@ Required minimums:
 
 - browser obligations must require `Tier 3` evidence
 - iOS obligations must require `Tier 3` evidence
-- CLI obligations may start at `Tier 2` for the MVP, with room to tighten later
+- CLI obligations may start at `Tier 2`, with room to tighten later
 - API and `curl` obligations should require at least `Tier 2`
 
 Mandatory visual proof:
@@ -421,7 +421,7 @@ proctor:
 
 ## Initial Command Model
 
-The likely MVP command set is:
+The initial implementation should ship these commands:
 
 ```text
 proctor --help
@@ -429,8 +429,6 @@ proctor start
 proctor status
 proctor record browser ...
 proctor record curl ...
-proctor record cli ...
-proctor record ios ...
 proctor done
 proctor report
 ```
@@ -439,38 +437,46 @@ Notes:
 
 - `--help` should be long-form and agent-readable, similar in spirit to Showboat
 - the interactive questioning belongs in `proctor start`, not inside `--help`
+- `status` is primarily for the agent while it is working, but it should stay readable by a human reviewer
 - `record` commands should validate evidence and attach it to specific obligations
 - `done` is the gate
 - `report` renders the shareable output from the evidence store
 
-## MVP Scope
+## Implementation Decisions
 
-The first version should stay narrow and prove the product shape.
+The initial implementation should use Go.
 
-### Phase 1
+Reasons:
 
-- single-user local CLI
-- interactive `proctor start`
-- browser and `curl` evidence recording
-- obligation store on disk
-- `status`, `done`, and generated `contract.md`
-- artifacts written to `~/.proctor`
+- Proctor is primarily a CLI orchestration tool
+- the work is mostly process execution, file I/O, JSON, and report generation
+- cross-platform single-binary distribution matters
+- Go keeps the initial implementation faster to ship and easier to evolve
 
-### Phase 2
+The initial implementation should fully support the web flow, not a toy slice of it.
 
-- HTML report generation
-- CLI verification support
-- iOS verification support
-- richer obligation categories and validation rules
+That means:
 
-### Phase 3
+- shared core is built now
+- browser flow is built now
+- `curl` support is built now when backend or protocol risk applies
+- `contract.md` and `report.html` are both built now
+- the product should feel complete for web from the first implementation
 
-- optional guard or wrapper mode around agent sessions
-- CI enforcement via `proctor done`
-- project-level defaults in `proctor.yaml`
-- stronger report review UX
+The shared core should be designed so iOS and CLI can be added later without reshaping the system.
 
-## Non-Goals For v0
+That means keeping clean extension points for:
+
+- run creation
+- contract creation
+- evidence recording
+- evidence validation
+- report rendering
+- surface-specific rules
+
+The next surfaces should be iOS and CLI, but they do not need to be implemented before web is fully working.
+
+## Non-Goals For The Initial Implementation
 
 - full autonomous test execution
 - hosted dashboards
@@ -510,19 +516,14 @@ The web story is strongest so far. CLI and iOS need equally good contract semant
 
 The current design can start fully interactive, but real projects will eventually want defaults for routes, endpoints, schemes, commands, report preferences, and policy tuning.
 
-## Open Questions
+## Locked Questions
 
-- how much evidence validation should happen at record-time versus done-time
-- what the first on-disk schema should look like
-- whether `record` should wrap external tools or just ingest their outputs
-- when `proctor.yaml` should arrive versus keeping v0 fully interactive
+These product choices are considered locked for now:
 
-## Immediate Next Step
-
-Build the smallest possible version that can:
-
-- ask the agent the right questions
-- store a contract on disk
-- record browser and curl evidence
-- compute missing obligations
-- fail `proctor done` until the contract is fully satisfied
+- the implementation language is Go
+- the initial implementation fully supports web
+- browser verification is mandatory for user-visible web work
+- `curl` is supported and required when backend or protocol risk is meaningful
+- `status` is primarily for the agent, but stays readable by humans
+- reports are generated from evidence and do not count as proof themselves
+- the shared core is built to support future iOS and CLI adapters
