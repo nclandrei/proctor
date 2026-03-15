@@ -49,6 +49,15 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 	if !strings.Contains(contractText, "bad email shows validation") {
 		t.Fatalf("expected contract to include edge-case scenario labels, got:\n%s", contractText)
 	}
+
+	report, err := os.ReadFile(filepath.Join(store.RunDir(run), "report.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportText := string(report)
+	if !strings.Contains(reportText, "Proctor Report") || !strings.Contains(reportText, "summary-grid") {
+		t.Fatalf("expected report html to include the new summary layout, got:\n%s", reportText)
+	}
 }
 
 func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {
