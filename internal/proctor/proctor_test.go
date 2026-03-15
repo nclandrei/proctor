@@ -34,6 +34,21 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
+	contract, err := os.ReadFile(filepath.Join(store.RunDir(run), "contract.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractText := string(contract)
+	if !strings.Contains(contractText, "## Edge Case Coverage") {
+		t.Fatalf("expected contract to include edge case coverage section, got:\n%s", contractText)
+	}
+	if !strings.Contains(contractText, "empty or missing input") || !strings.Contains(contractText, "covered elsewhere") {
+		t.Fatalf("expected contract to include N/A reason for empty input category, got:\n%s", contractText)
+	}
+	if !strings.Contains(contractText, "bad email shows validation") {
+		t.Fatalf("expected contract to include edge-case scenario labels, got:\n%s", contractText)
+	}
 }
 
 func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {

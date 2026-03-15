@@ -14,6 +14,7 @@ type scenarioReport struct {
 
 func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, string, error) {
 	scenarios := groupEvidenceByScenario(eval, evidence)
+	edgeCoverage := edgeCoverageRows(run)
 
 	var md strings.Builder
 	md.WriteString(fmt.Sprintf("# %s\n\n", run.Feature))
@@ -28,6 +29,21 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 		md.WriteString("- Endpoints:\n")
 		for _, endpoint := range run.CurlEndpoints {
 			md.WriteString(fmt.Sprintf("  - `%s`\n", endpoint))
+		}
+	}
+	if len(edgeCoverage) > 0 {
+		md.WriteString("\n## Edge Case Coverage\n\n")
+		for _, row := range edgeCoverage {
+			md.WriteString(fmt.Sprintf("### %s\n\n", row.Category))
+			if row.Status == EdgeCategoryNA {
+				md.WriteString(fmt.Sprintf("- Status: N/A (%s)\n\n", row.Reason))
+				continue
+			}
+			md.WriteString("- Status: scenario coverage required\n")
+			for _, label := range row.ScenarioLabels {
+				md.WriteString(fmt.Sprintf("  - %s\n", label))
+			}
+			md.WriteString("\n")
 		}
 	}
 	md.WriteString("\n## Scenario Status\n\n")
@@ -80,9 +96,10 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 	}
 
 	type reportData struct {
-		Run       Run
-		Eval      Evaluation
-		Scenarios []scenarioReport
+		Run          Run
+		Eval         Evaluation
+		Scenarios    []scenarioReport
+		EdgeCoverage []edgeCoverageRow
 	}
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"join":  strings.Join,
@@ -114,6 +131,20 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
   {{ if .Run.CurlEndpoints }}
   <p><strong>Endpoints:</strong></p>
   <ul>{{ range .Run.CurlEndpoints }}<li><code>{{ . }}</code></li>{{ end }}</ul>
+  {{ end }}
+  {{ if .EdgeCoverage }}
+  <h2>Edge Case Coverage</h2>
+  {{ range .EdgeCoverage }}
+  <section class="card">
+    <h3>{{ .Category }}</h3>
+    {{ if eq .Status "na" }}
+    <div>Status: N/A ({{ .Reason }})</div>
+    {{ else }}
+    <div>Status: scenario coverage required</div>
+    <ul>{{ range .ScenarioLabels }}<li>{{ . }}</li>{{ end }}</ul>
+    {{ end }}
+  </section>
+  {{ end }}
   {{ end }}
   <h2>Scenarios</h2>
   {{ range .Scenarios }}
@@ -159,7 +190,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 	}
 
 	var html strings.Builder
-	if err := tmpl.Execute(&html, reportData{Run: run, Eval: eval, Scenarios: scenarios}); err != nil {
+	if err := tmpl.Execute(&html, reportData{Run: run, Eval: eval, Scenarios: scenarios, EdgeCoverage: edgeCoverage}); err != nil {
 		return "", "", err
 	}
 	return md.String(), html.String(), nil
@@ -190,4 +221,34 @@ func groupEvidenceByScenario(eval Evaluation, evidence []Evidence) []scenarioRep
 
 func (s ScenarioEvaluation) EvalHasBrowser() bool {
 	return s.Scenario.BrowserRequired
+}
+
+type edgeCoverageRow struct {
+	Category       string
+	Status         string
+	Reason         string
+	ScenarioLabels []string
+}
+
+func edgeCoverageRows(run Run) []edgeCoverageRow {
+	scenarioLabels := map[string]string{}
+	for _, scenario := range run.Scenarios {
+		scenarioLabels[scenario.ID] = scenario.Label
+	}
+
+	var rows []edgeCoverageRow
+	for _, category := range run.EdgeCaseCategories {
+		row := edgeCoverageRow{
+			Category: category.Category,
+			Status:   category.Status,
+			Reason:   category.Reason,
+		}
+		for _, scenarioID := range category.ScenarioIDs {
+			if label := scenarioLabels[scenarioID]; label != "" {
+				row.ScenarioLabels = append(row.ScenarioLabels, label)
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
