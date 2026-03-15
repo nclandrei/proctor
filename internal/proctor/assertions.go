@@ -8,6 +8,13 @@ import (
 	"strings"
 )
 
+var defaultBrowserHealthChecks = []string{
+	"console_errors",
+	"page_errors",
+	"failed_requests",
+	"http_errors",
+}
+
 type agentBrowserAuditReport struct {
 	Desktop *agentBrowserDevice `json:"desktop"`
 	Mobile  *agentBrowserDevice `json:"mobile"`
@@ -70,6 +77,7 @@ func issueCount(issues map[string]interface{}, key string) int {
 
 func EvaluateBrowserAssertions(expressions, failingExpressions []string, data BrowserData, artifacts []Artifact) ([]Assertion, error) {
 	var assertions []Assertion
+	covered := coveredBrowserKeys(expressions, failingExpressions)
 	for _, expression := range normalizedLines(expressions) {
 		assertion, err := evaluateBrowserAssertion(expression, data, artifacts, true)
 		if err != nil {
@@ -82,6 +90,9 @@ func EvaluateBrowserAssertions(expressions, failingExpressions []string, data Br
 		if err != nil {
 			return nil, err
 		}
+		assertions = append(assertions, assertion)
+	}
+	for _, assertion := range implicitBrowserAssertions(covered, data) {
 		assertions = append(assertions, assertion)
 	}
 	return assertions, nil
@@ -268,6 +279,62 @@ func hasScreenshotLabel(artifacts []Artifact, label string) bool {
 		}
 	}
 	return false
+}
+
+func coveredBrowserKeys(expressions, failingExpressions []string) map[string]bool {
+	covered := map[string]bool{}
+	for _, group := range [][]string{expressions, failingExpressions} {
+		for _, expression := range normalizedLines(group) {
+			left, _, _, err := splitAssertion(expression)
+			if err != nil {
+				continue
+			}
+			covered[strings.ToLower(strings.TrimSpace(left))] = true
+		}
+	}
+	return covered
+}
+
+func implicitBrowserAssertions(covered map[string]bool, data BrowserData) []Assertion {
+	var assertions []Assertion
+	appendDevice := func(prefix string) {
+		for _, metric := range defaultBrowserHealthChecks {
+			key := metric
+			if prefix != "" {
+				key = prefix + "." + metric
+			}
+			if prefix == "" && (covered[key] || covered["desktop."+metric]) {
+				continue
+			}
+			if prefix != "" && covered[key] {
+				continue
+			}
+			value, ok := lookupBrowserValue(key, data, nil)
+			if !ok {
+				continue
+			}
+			actualValue, _ := value.(int)
+			result := AssertionPass
+			message := ""
+			if actualValue != 0 {
+				result = AssertionFail
+				message = "implicit zero-issues policy failed"
+			}
+			assertions = append(assertions, Assertion{
+				Description: key + " = 0",
+				Expected:    "0",
+				Actual:      strconv.Itoa(actualValue),
+				Result:      result,
+				Message:     message,
+			})
+		}
+	}
+
+	appendDevice("")
+	if data.Mobile != nil {
+		appendDevice("mobile")
+	}
+	return assertions
 }
 
 func ParseHTTPTranscript(text string) (int, map[string]string, string) {

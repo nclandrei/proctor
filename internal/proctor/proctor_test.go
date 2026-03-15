@@ -242,6 +242,109 @@ func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
 	}
 }
 
+func TestBrowserImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 2, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+			"mobile-success":  mobileShot,
+		},
+		PassAssertions: []string{
+			"final_url contains /dashboard",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	evidence, err := store.LoadEvidence(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundImplicitFailure := false
+	for _, assertion := range evidence[0].Assertions {
+		if assertion.Description == "failed_requests = 0" && assertion.Result == AssertionFail {
+			foundImplicitFailure = true
+		}
+	}
+	if !foundImplicitFailure {
+		t.Fatalf("expected implicit failed_requests assertion to fail")
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.ScenarioEvaluations[0].BrowserOK {
+		t.Fatalf("expected browser evidence to fail implicit health checks")
+	}
+}
+
+func TestExplicitDesktopIssueAssertionOverridesImplicitZeroCheck(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 1))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "failure-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-failure": desktopShot,
+			"mobile-failure":  mobileShot,
+		},
+		PassAssertions: []string{
+			"desktop.http_errors = 1",
+			"mobile.http_errors = 0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	evidence, err := store.LoadEvidence(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, assertion := range evidence[0].Assertions {
+		if assertion.Description == "http_errors = 0" && assertion.Result == AssertionFail {
+			t.Fatalf("unexpected implicit desktop http_errors failure: %#v", assertion)
+		}
+	}
+}
+
 func sampleStartOptions() StartOptions {
 	return StartOptions{
 		Feature:       "auth flow",

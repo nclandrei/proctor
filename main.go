@@ -369,10 +369,12 @@ Browser evidence requirements:
   - at least one screenshot
   - a browser report JSON artifact
   - at least one passing assertion
+  - console/page/network/http issue counts default to zero unless explicitly asserted otherwise
   - supported assertions include:
     - final_url contains /dashboard
     - console_errors = 0
     - failed_requests = 0
+    - desktop.http_errors = 1
     - desktop_screenshot = true
     - mobile.final_url contains /login
 
