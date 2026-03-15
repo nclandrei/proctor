@@ -118,9 +118,11 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
   <title>Proctor report - {{ .Run.Feature }}</title>
   <style>
     :root {
+      color-scheme: dark;
       --bg: #081017;
       --panel: rgba(11, 20, 31, 0.86);
       --panel-strong: rgba(8, 16, 23, 0.96);
@@ -136,6 +138,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       --shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
     }
     * { box-sizing: border-box; }
+    html { background: var(--bg); }
     body {
       margin: 0;
       background:
