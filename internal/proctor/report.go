@@ -67,6 +67,9 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 
 		for _, item := range scenario.Evidence {
 			md.WriteString(fmt.Sprintf("\n#### %s Evidence\n\n", strings.Title(item.Surface)))
+			for _, line := range evidenceSummaryLines(item) {
+				md.WriteString(fmt.Sprintf("- %s\n", line))
+			}
 			for _, assertion := range item.Assertions {
 				icon := "FAIL"
 				if assertion.Result == AssertionPass {
@@ -102,8 +105,9 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 		EdgeCoverage []edgeCoverageRow
 	}
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
-		"join":  strings.Join,
-		"title": strings.Title,
+		"join":                 strings.Join,
+		"title":                strings.Title,
+		"evidenceSummaryLines": evidenceSummaryLines,
 	}).Parse(`<!doctype html>
 <html>
 <head>
@@ -155,6 +159,14 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
     {{ if .Eval.Scenario.CurlRequired }}{{ if .Eval.CurlOK }}<div class="ok">curl: pass</div>{{ else }}<div class="bad">curl: fail ({{ join .Eval.CurlIssues ", " }})</div>{{ end }}{{ end }}
     {{ range .Evidence }}
     <h4>{{ title .Surface }} evidence</h4>
+    {{ $summary := evidenceSummaryLines . }}
+    {{ if $summary }}
+    <ul>
+      {{ range $summary }}
+      <li>{{ . }}</li>
+      {{ end }}
+    </ul>
+    {{ end }}
     <ul>
       {{ range .Assertions }}
       <li class="{{ if eq .Result "pass" }}ok{{ else }}bad{{ end }}">
@@ -251,4 +263,48 @@ func edgeCoverageRows(run Run) []edgeCoverageRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func evidenceSummaryLines(item Evidence) []string {
+	switch item.Surface {
+	case SurfaceBrowser:
+		return browserSummaryLines(item)
+	case SurfaceCurl:
+		return curlSummaryLines(item)
+	default:
+		return nil
+	}
+}
+
+func browserSummaryLines(item Evidence) []string {
+	if item.Browser == nil {
+		return nil
+	}
+	lines := []string{
+		fmt.Sprintf("Tool: `%s`", item.Browser.Tool),
+		fmt.Sprintf("Session: `%s`", item.Browser.SessionID),
+		fmt.Sprintf("Desktop final URL: `%s`", item.Browser.Desktop.FinalURL),
+		fmt.Sprintf("Desktop issues: console=%d, page=%d, failed_requests=%d, http=%d", item.Browser.Desktop.ConsoleErrors, item.Browser.Desktop.PageErrors, item.Browser.Desktop.FailedRequests, item.Browser.Desktop.HTTPErrors),
+	}
+	if item.Browser.Mobile != nil {
+		lines = append(lines,
+			fmt.Sprintf("Mobile final URL: `%s`", item.Browser.Mobile.FinalURL),
+			fmt.Sprintf("Mobile issues: console=%d, page=%d, failed_requests=%d, http=%d", item.Browser.Mobile.ConsoleErrors, item.Browser.Mobile.PageErrors, item.Browser.Mobile.FailedRequests, item.Browser.Mobile.HTTPErrors),
+		)
+	}
+	return lines
+}
+
+func curlSummaryLines(item Evidence) []string {
+	if item.Curl == nil {
+		return nil
+	}
+	lines := []string{
+		fmt.Sprintf("Command: `%s`", strings.Join(item.Curl.Command, " ")),
+		fmt.Sprintf("Exit code: `%d`", item.Curl.ExitCode),
+	}
+	if item.Curl.ResponseStatus != 0 {
+		lines = append(lines, fmt.Sprintf("Response status: `%d`", item.Curl.ResponseStatus))
+	}
+	return lines
 }

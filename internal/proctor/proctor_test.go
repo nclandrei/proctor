@@ -216,6 +216,15 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 	if !strings.Contains(string(contract), "desktop-success") {
 		t.Fatalf("expected contract to reference screenshot artifact, got:\n%s", contract)
 	}
+	if !strings.Contains(string(contract), "Desktop final URL: `http://127.0.0.1:3000/dashboard`") {
+		t.Fatalf("expected contract to include browser final URL summary, got:\n%s", contract)
+	}
+	if !strings.Contains(string(contract), "Session: `browser-1`") {
+		t.Fatalf("expected contract to include browser session summary, got:\n%s", contract)
+	}
+	if !strings.Contains(string(contract), "Response status: `200`") {
+		t.Fatalf("expected contract to include curl response summary, got:\n%s", contract)
+	}
 }
 
 func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
