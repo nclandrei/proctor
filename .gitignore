@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Env and local overrides
+.env
+.env.*
+!.env.example
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+tmp/
+
+# Build outputs
+bin/
+build/
+dist/
+coverage/
+
+# Local runtime state
+.proctor/
+.codex-runtime/
