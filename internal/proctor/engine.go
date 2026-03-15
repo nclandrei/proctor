@@ -235,7 +235,7 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 		curlEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCurl)
 
 		if scenario.BrowserRequired {
-			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, browserEvidence)
+			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, scenario, browserEvidence)
 			if !scenarioEval.BrowserOK {
 				eval.Complete = false
 			}
@@ -421,19 +421,19 @@ func selectEvidenceForScenario(items []Evidence, scenarioID, surface string) []E
 	return selected
 }
 
-func validateBrowserEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+func validateBrowserEvidence(store *Store, run Run, scenario Scenario, items []Evidence) (bool, []string) {
 	if len(items) == 0 {
 		return false, []string{"missing browser evidence"}
 	}
 	for _, item := range items {
-		issues := browserEvidenceIssues(store, run, item)
+		issues := browserEvidenceIssues(store, run, scenario, item)
 		if len(issues) == 0 {
 			return true, nil
 		}
 	}
 	var issues []string
 	for _, item := range items {
-		issues = append(issues, browserEvidenceIssues(store, run, item)...)
+		issues = append(issues, browserEvidenceIssues(store, run, scenario, item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -471,7 +471,7 @@ func assertionsPass(assertions []Assertion) bool {
 	return passCount > 0
 }
 
-func browserEvidenceIssues(store *Store, run Run, item Evidence) []string {
+func browserEvidenceIssues(store *Store, run Run, scenario Scenario, item Evidence) []string {
 	var issues []string
 	if item.Tier < TierRegisteredRun {
 		issues = append(issues, fmt.Sprintf("browser evidence tier %d is below required tier %d", item.Tier, TierRegisteredRun))
@@ -480,6 +480,7 @@ func browserEvidenceIssues(store *Store, run Run, item Evidence) []string {
 		issues = append(issues, "browser evidence is missing a registered session id")
 	}
 	issues = append(issues, browserReportStructureIssues(item)...)
+	issues = append(issues, scenarioSpecificBrowserIssues(scenario, item)...)
 	issues = append(issues, assertionIssues(item.Assertions, "browser")...)
 
 	hasImage := false
@@ -503,6 +504,29 @@ func browserEvidenceIssues(store *Store, run Run, item Evidence) []string {
 		issues = append(issues, "browser evidence is missing a browser report")
 	}
 	return dedupeStrings(issues)
+}
+
+func scenarioSpecificBrowserIssues(scenario Scenario, item Evidence) []string {
+	if !scenarioNeedsMobileProof(scenario) {
+		return nil
+	}
+
+	var issues []string
+	if !hasScreenshotLabel(item.Artifacts, "mobile") {
+		issues = append(issues, "mobile or responsive behavior scenarios require a mobile screenshot")
+	}
+	if item.Browser == nil || item.Browser.Mobile == nil {
+		issues = append(issues, "mobile or responsive behavior scenarios require mobile browser results")
+		return issues
+	}
+	if strings.TrimSpace(item.Browser.Mobile.FinalURL) == "" {
+		issues = append(issues, "mobile or responsive behavior scenarios require a mobile final URL")
+	}
+	return issues
+}
+
+func scenarioNeedsMobileProof(scenario Scenario) bool {
+	return strings.EqualFold(strings.TrimSpace(scenario.Category), "mobile or responsive behavior")
 }
 
 func browserReportStructureIssues(item Evidence) []string {

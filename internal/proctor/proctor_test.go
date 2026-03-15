@@ -160,13 +160,17 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 		if scenario.Kind != "edge-case" {
 			continue
 		}
+		screenshots := map[string]string{
+			"desktop-edge": desktopShot,
+		}
+		if scenario.Category == "mobile or responsive behavior" {
+			screenshots["mobile-edge"] = mobileShot
+		}
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
-			ScenarioID: scenario.ID,
-			SessionID:  "browser-1",
-			ReportPath: successReport,
-			Screenshots: map[string]string{
-				"desktop-edge": desktopShot,
-			},
+			ScenarioID:  scenario.ID,
+			SessionID:   "browser-1",
+			ReportPath:  successReport,
+			Screenshots: screenshots,
 			PassAssertions: []string{
 				"console_errors = 0",
 			},
@@ -527,6 +531,107 @@ func TestBrowserReportRequiresDesktopFinalURL(t *testing.T) {
 	}
 	if containsSubstring(eval.GlobalMissing, "desktop screenshot") || containsSubstring(eval.GlobalMissing, "mobile screenshot") {
 		t.Fatalf("expected global screenshot coverage to count attached screenshots even when the scenario fails, got %#v", eval.GlobalMissing)
+	}
+}
+
+func TestMobileResponsiveScenarioRequiresMobileScreenshot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "mobile-or-responsive-behavior-layout-remains-usable-on-mobile",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+		},
+		PassAssertions: []string{
+			"final_url contains /dashboard",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scenarioEval ScenarioEvaluation
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.ID == "mobile-or-responsive-behavior-layout-remains-usable-on-mobile" {
+			scenarioEval = item
+			break
+		}
+	}
+	if scenarioEval.BrowserOK {
+		t.Fatalf("expected mobile-responsive scenario to fail without a mobile screenshot")
+	}
+	if !containsSubstring(scenarioEval.BrowserIssues, "mobile or responsive behavior scenarios require a mobile screenshot") {
+		t.Fatalf("expected mobile screenshot requirement, got %#v", scenarioEval.BrowserIssues)
+	}
+}
+
+func TestMobileResponsiveScenarioPassesWithMobileProof(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "mobile-or-responsive-behavior-layout-remains-usable-on-mobile",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+			"mobile-success":  mobileShot,
+		},
+		PassAssertions: []string{
+			"mobile.final_url contains /dashboard",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scenarioEval ScenarioEvaluation
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.ID == "mobile-or-responsive-behavior-layout-remains-usable-on-mobile" {
+			scenarioEval = item
+			break
+		}
+	}
+	if !scenarioEval.BrowserOK {
+		t.Fatalf("expected mobile-responsive scenario to pass with mobile proof, got %#v", scenarioEval.BrowserIssues)
 	}
 }
 
