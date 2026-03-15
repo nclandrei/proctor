@@ -133,8 +133,12 @@ Proctor only needs a small report shape:
       "pageErrors": 0,
       "failedRequests": 0,
       "httpErrors": 0
-    }
-  }
+}
+}
+
+If your browser tool does not emit this exact file, that is still fine. Capture
+the real browser session data, then write a tiny `report.json` file with this
+shape and attach that to Proctor.
 }
 ```
 
@@ -192,6 +196,9 @@ For browser evidence, Proctor expects:
 - at least one screenshot
 - a report JSON artifact
 - at least one passing assertion
+
+The report JSON can be synthesized from real browser-session output. It does
+not have to come from one specific browser helper.
 
 For curl evidence, Proctor expects:
 

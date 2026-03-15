@@ -178,6 +178,10 @@ What counts as browser evidence:
   - a mobile screenshot when mobile or responsive proof matters
   - assertions tied to the scenario
 
+The report JSON does not need to come from one specific helper. If your browser
+tool gives you the final URL and issue counts separately, write a small
+report.json file that matches the documented shape and attach that.
+
 The browser report only needs a small shape:
   {
     "desktop": {
@@ -198,8 +202,11 @@ The browser report only needs a small shape:
         "pageErrors": 0,
         "failedRequests": 0,
         "httpErrors": 0
-      }
-    }
+  }
+}
+
+If your browser tool does not emit this exact file, you can still use Proctor:
+capture the real browser data, then write a tiny JSON file with these fields.
   }
 
 Use subcommand help for exact flags:
@@ -368,8 +375,11 @@ Expected report JSON shape:
         "pageErrors": 0,
         "failedRequests": 0,
         "httpErrors": 0
-      }
-    }
+  }
+}
+
+The JSON can be synthesized from real browser-session output. It does not need
+to be emitted by one specific browser helper.
   }
 
 Happy-path example:
