@@ -1,0 +1,505 @@
+package proctor
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
+	repoRoot := RepoRoot(cwd)
+	repoSlug, err := RepoSlug(repoRoot)
+	if err != nil {
+		return Run{}, err
+	}
+	now := time.Now().UTC()
+	run := Run{
+		ID:             newID("run"),
+		RepoRoot:       repoRoot,
+		RepoSlug:       repoSlug,
+		Feature:        strings.TrimSpace(opts.Feature),
+		BrowserURL:     strings.TrimSpace(opts.BrowserURL),
+		CurlRequired:   strings.EqualFold(opts.CurlMode, "required"),
+		CurlEndpoints:  normalizedLines(opts.CurlEndpoints),
+		CurlSkipReason: strings.TrimSpace(opts.CurlSkipReason),
+		Status:         StatusInProgress,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	run.HappyPath = Scenario{
+		ID:              "happy-path",
+		Label:           strings.TrimSpace(opts.HappyPath),
+		Kind:            "happy-path",
+		BrowserRequired: true,
+		CurlRequired:    run.CurlRequired,
+	}
+	run.FailurePath = Scenario{
+		ID:              "failure-path",
+		Label:           strings.TrimSpace(opts.FailurePath),
+		Kind:            "failure-path",
+		BrowserRequired: true,
+		CurlRequired:    run.CurlRequired,
+	}
+	run.Scenarios = append(run.Scenarios, run.HappyPath, run.FailurePath)
+
+	edgeCategories, edgeScenarios := parseEdgeCaseInputs(opts.EdgeCaseInputs)
+	run.EdgeCaseCategories = edgeCategories
+	run.Scenarios = append(run.Scenarios, edgeScenarios...)
+
+	runDir := store.RunDir(run)
+	if err := os.MkdirAll(filepath.Join(runDir, "artifacts"), 0o755); err != nil {
+		return Run{}, err
+	}
+	if err := store.SaveRun(run); err != nil {
+		return Run{}, err
+	}
+	if err := store.SetActiveRun(run); err != nil {
+		return Run{}, err
+	}
+	if err := writeReports(store, run); err != nil {
+		return Run{}, err
+	}
+	return run, nil
+}
+
+func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
+	scenario, ok := findScenario(run, opts.ScenarioID)
+	if !ok {
+		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
+	}
+	if opts.SessionID == "" {
+		return fmt.Errorf("browser evidence requires --session")
+	}
+	if opts.ReportPath == "" {
+		return fmt.Errorf("browser evidence requires --report")
+	}
+	if len(opts.Screenshots) == 0 {
+		return fmt.Errorf("browser evidence requires at least one --screenshot")
+	}
+	assertions := buildAssertions(opts.PassAssertions, opts.FailAssertions)
+	if len(assertions) == 0 {
+		return fmt.Errorf("browser evidence requires at least one assertion")
+	}
+
+	var artifacts []Artifact
+	for label, source := range opts.Screenshots {
+		artifact, err := store.CopyArtifact(run, SurfaceBrowser, scenario.ID, label, source)
+		if err != nil {
+			return err
+		}
+		artifact.Kind = ArtifactImage
+		artifacts = append(artifacts, artifact)
+	}
+	reportArtifact, err := store.CopyArtifact(run, SurfaceBrowser, scenario.ID, "browser-report", opts.ReportPath)
+	if err != nil {
+		return err
+	}
+	reportArtifact.Kind = ArtifactJSONReport
+	reportArtifact.MediaType = "application/json"
+	artifacts = append(artifacts, reportArtifact)
+
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: scenario.ID,
+		Surface:    SurfaceBrowser,
+		Tier:       TierRegisteredRun,
+		CreatedAt:  time.Now().UTC(),
+		Title:      fmt.Sprintf("Browser verification for %s", scenario.Label),
+		Provenance: Provenance{
+			Mode:       "registered-session",
+			Tool:       firstNonEmpty(opts.Tool, "agent-browser"),
+			SessionID:  opts.SessionID,
+			CWD:        run.RepoRoot,
+			RecordedBy: "proctor",
+		},
+		Assertions: assertions,
+		Artifacts:  artifacts,
+		Browser: &BrowserData{
+			URL:       run.BrowserURL,
+			SessionID: opts.SessionID,
+			Tool:      firstNonEmpty(opts.Tool, "agent-browser"),
+		},
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		return err
+	}
+	if err := writeReports(store, run); err != nil {
+		return err
+	}
+	return nil
+}
+
+func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
+	scenario, ok := findScenario(run, opts.ScenarioID)
+	if !ok {
+		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
+	}
+	if len(opts.Command) == 0 {
+		return fmt.Errorf("curl evidence requires a command after --")
+	}
+	assertions := buildAssertions(opts.PassAssertions, opts.FailAssertions)
+	if len(assertions) == 0 {
+		return fmt.Errorf("curl evidence requires at least one assertion")
+	}
+
+	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
+	cmd.Dir = run.RepoRoot
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return err
+		}
+	}
+
+	content := []byte(fmt.Sprintf("$ %s\n\n%s%s", strings.Join(opts.Command, " "), stdout.String(), stderr.String()))
+	transcript, err := store.WriteArtifact(run, SurfaceCurl, scenario.ID, "curl-transcript", ".txt", content)
+	if err != nil {
+		return err
+	}
+	transcript.Kind = ArtifactTranscript
+	transcript.MediaType = "text/plain"
+
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: scenario.ID,
+		Surface:    SurfaceCurl,
+		Tier:       TierWrappedCommand,
+		CreatedAt:  time.Now().UTC(),
+		Title:      fmt.Sprintf("curl verification for %s", scenario.Label),
+		Provenance: Provenance{
+			Mode:       "wrapped-command",
+			Tool:       opts.Command[0],
+			Command:    opts.Command,
+			CWD:        run.RepoRoot,
+			RecordedBy: "proctor",
+		},
+		Assertions: assertions,
+		Artifacts:  []Artifact{transcript},
+		Curl: &CurlData{
+			Command:  opts.Command,
+			ExitCode: exitCode,
+		},
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		return err
+	}
+	if err := writeReports(store, run); err != nil {
+		return err
+	}
+	return nil
+}
+
+func Evaluate(store *Store, run Run) (Evaluation, error) {
+	evidence, err := store.LoadEvidence(run)
+	if err != nil {
+		return Evaluation{}, err
+	}
+
+	eval := Evaluation{Complete: true}
+	hasDesktop := false
+	hasMobile := false
+
+	for _, scenario := range run.Scenarios {
+		scenarioEval := ScenarioEvaluation{Scenario: scenario}
+		browserEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceBrowser)
+		curlEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCurl)
+
+		if scenario.BrowserRequired {
+			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, browserEvidence)
+			if !scenarioEval.BrowserOK {
+				eval.Complete = false
+			} else {
+				for _, item := range browserEvidence {
+					for _, artifact := range item.Artifacts {
+						if artifact.Kind != ArtifactImage {
+							continue
+						}
+						label := strings.ToLower(artifact.Label)
+						if strings.Contains(label, "desktop") {
+							hasDesktop = true
+						}
+						if strings.Contains(label, "mobile") {
+							hasMobile = true
+						}
+					}
+				}
+			}
+		}
+
+		if scenario.CurlRequired {
+			scenarioEval.CurlOK, scenarioEval.CurlIssues = validateCurlEvidence(store, run, curlEvidence)
+			if !scenarioEval.CurlOK {
+				eval.Complete = false
+			}
+		}
+
+		eval.ScenarioEvaluations = append(eval.ScenarioEvaluations, scenarioEval)
+	}
+
+	if !hasDesktop {
+		eval.Complete = false
+		eval.GlobalMissing = append(eval.GlobalMissing, "at least one desktop screenshot")
+	}
+	if !hasMobile {
+		eval.Complete = false
+		eval.GlobalMissing = append(eval.GlobalMissing, "at least one mobile screenshot")
+	}
+
+	return eval, nil
+}
+
+func CompleteRun(store *Store, run Run) (Evaluation, error) {
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	if eval.Complete {
+		run.Status = StatusPassed
+	} else {
+		run.Status = StatusBlocked
+	}
+	if err := store.SaveRun(run); err != nil {
+		return Evaluation{}, err
+	}
+	if err := writeReports(store, run); err != nil {
+		return Evaluation{}, err
+	}
+	return eval, nil
+}
+
+func writeReports(store *Store, run Run) error {
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		return err
+	}
+	markdown, html, err := RenderReports(run, eval)
+	if err != nil {
+		return err
+	}
+	mdArtifact, err := store.WriteArtifact(run, "reports", "summary", "contract", ".md", []byte(markdown))
+	if err != nil {
+		return err
+	}
+	_ = mdArtifact
+	if err := os.WriteFile(filepath.Join(store.RunDir(run), "contract.md"), []byte(markdown), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(store.RunDir(run), "report.html"), []byte(html), 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildAssertions(pass, fail []string) []Assertion {
+	var assertions []Assertion
+	for _, value := range normalizedLines(pass) {
+		assertions = append(assertions, Assertion{Description: value, Result: AssertionPass})
+	}
+	for _, value := range normalizedLines(fail) {
+		assertions = append(assertions, Assertion{Description: value, Result: AssertionFail})
+	}
+	return assertions
+}
+
+func normalizedLines(values []string) []string {
+	var normalized []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func parseEdgeCaseInputs(inputs []string) ([]EdgeCaseCategory, []Scenario) {
+	var categories []EdgeCaseCategory
+	var scenarios []Scenario
+	for _, category := range EdgeCaseCategories {
+		entry := EdgeCaseCategory{Category: category}
+		response := ""
+		for _, input := range inputs {
+			key, value, ok := strings.Cut(input, "=")
+			if !ok {
+				key, value, ok = strings.Cut(input, ":")
+			}
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), category) {
+				continue
+			}
+			response = strings.TrimSpace(value)
+			break
+		}
+		if strings.EqualFold(response, "") {
+			entry.Status = EdgeCategoryNA
+			entry.Reason = "No answer recorded"
+			categories = append(categories, entry)
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(response), "n/a") {
+			entry.Status = EdgeCategoryNA
+			entry.Reason = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(response), "n/a"), ":"))
+			if entry.Reason == "" {
+				entry.Reason = "Marked not applicable"
+			}
+			categories = append(categories, entry)
+			continue
+		}
+		entry.Status = EdgeCategoryScenar
+		parts := strings.Split(response, ";")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			scenario := Scenario{
+				ID:              slugify(category + "-" + part),
+				Label:           part,
+				Kind:            "edge-case",
+				Category:        category,
+				BrowserRequired: true,
+				CurlRequired:    false,
+			}
+			entry.ScenarioIDs = append(entry.ScenarioIDs, scenario.ID)
+			scenarios = append(scenarios, scenario)
+		}
+		categories = append(categories, entry)
+	}
+	return categories, scenarios
+}
+
+func findScenario(run Run, scenarioID string) (Scenario, bool) {
+	for _, scenario := range run.Scenarios {
+		if scenario.ID == scenarioID {
+			return scenario, true
+		}
+	}
+	return Scenario{}, false
+}
+
+func selectEvidenceForScenario(items []Evidence, scenarioID, surface string) []Evidence {
+	var selected []Evidence
+	for _, item := range items {
+		if item.ScenarioID == scenarioID && item.Surface == surface {
+			selected = append(selected, item)
+		}
+	}
+	return selected
+}
+
+func validateBrowserEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+	if len(items) == 0 {
+		return false, []string{"missing browser evidence"}
+	}
+	for _, item := range items {
+		if item.Tier < TierRegisteredRun {
+			continue
+		}
+		if item.Provenance.SessionID == "" {
+			continue
+		}
+		if !assertionsPass(item.Assertions) {
+			continue
+		}
+		hasImage := false
+		hasReport := false
+		artifactError := false
+		for _, artifact := range item.Artifacts {
+			if err := store.VerifyArtifactHash(run, artifact); err != nil {
+				artifactError = true
+				break
+			}
+			switch artifact.Kind {
+			case ArtifactImage:
+				hasImage = true
+			case ArtifactJSONReport:
+				hasReport = true
+			}
+		}
+		if artifactError {
+			continue
+		}
+		if hasImage && hasReport {
+			return true, nil
+		}
+	}
+	return false, []string{"browser evidence is missing screenshots, report, valid assertions, or hash integrity"}
+}
+
+func validateCurlEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+	if len(items) == 0 {
+		return false, []string{"missing curl evidence"}
+	}
+	for _, item := range items {
+		if item.Tier < TierWrappedCommand {
+			continue
+		}
+		if len(item.Provenance.Command) == 0 {
+			continue
+		}
+		if !assertionsPass(item.Assertions) {
+			continue
+		}
+		hasTranscript := false
+		artifactError := false
+		for _, artifact := range item.Artifacts {
+			if err := store.VerifyArtifactHash(run, artifact); err != nil {
+				artifactError = true
+				break
+			}
+			if artifact.Kind == ArtifactTranscript {
+				hasTranscript = true
+			}
+		}
+		if artifactError {
+			continue
+		}
+		if hasTranscript {
+			return true, nil
+		}
+	}
+	return false, []string{"curl evidence is missing a transcript, valid assertions, or hash integrity"}
+}
+
+func assertionsPass(assertions []Assertion) bool {
+	if len(assertions) == 0 {
+		return false
+	}
+	passCount := 0
+	for _, assertion := range assertions {
+		if assertion.Result == AssertionFail {
+			return false
+		}
+		if assertion.Result == AssertionPass {
+			passCount++
+		}
+	}
+	return passCount > 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func newID(prefix string) string {
+	return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
+}
