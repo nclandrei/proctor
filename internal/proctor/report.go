@@ -110,6 +110,9 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 		"evidenceSummaryLines": evidenceSummaryLines,
 		"reportStatus":         reportStatus,
 		"scenarioComplete":     scenarioComplete,
+		"scenarioTone":         scenarioTone,
+		"passedScenarioCount":  passedScenarioCount,
+		"failedScenarioCount":  failedScenarioCount,
 		"curlModeLabel":        curlModeLabel,
 	}).Parse(`<!doctype html>
 <html>
@@ -118,31 +121,33 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
   <title>Proctor report - {{ .Run.Feature }}</title>
   <style>
     :root {
-      --bg: #f6f0e5;
-      --panel: rgba(255, 252, 245, 0.88);
-      --ink: #1c1917;
-      --muted: #57534e;
-      --line: #d6d3d1;
-      --ok: #166534;
-      --ok-bg: #dcfce7;
-      --bad: #991b1b;
-      --bad-bg: #fee2e2;
-      --accent: #0f766e;
-      --accent-soft: #ccfbf1;
-      --shadow: 0 18px 48px rgba(28, 25, 23, 0.08);
+      --bg: #081017;
+      --panel: rgba(11, 20, 31, 0.86);
+      --panel-strong: rgba(8, 16, 23, 0.96);
+      --ink: #f5f3ef;
+      --muted: #a8b0bb;
+      --line: rgba(148, 163, 184, 0.18);
+      --ok: #71f7b8;
+      --ok-bg: rgba(34, 197, 94, 0.16);
+      --bad: #ff8d8d;
+      --bad-bg: rgba(239, 68, 68, 0.16);
+      --accent: #7dd3fc;
+      --accent-soft: rgba(34, 211, 238, 0.14);
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       background:
-        radial-gradient(circle at top left, rgba(15, 118, 110, 0.10), transparent 30%),
-        linear-gradient(180deg, #faf7f0 0%, var(--bg) 100%);
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(251, 191, 36, 0.10), transparent 22%),
+        linear-gradient(180deg, #09131d 0%, var(--bg) 100%);
       color: var(--ink);
       font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
       line-height: 1.55;
     }
     code {
-      background: rgba(28, 25, 23, 0.06);
+      background: rgba(148, 163, 184, 0.12);
       padding: 2px 6px;
       border-radius: 999px;
       font-family: "SFMono-Regular", Menlo, Consolas, monospace;
@@ -155,8 +160,8 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       padding: 28px;
     }
     .hero {
-      background: linear-gradient(135deg, rgba(255, 252, 245, 0.98), rgba(255, 247, 237, 0.92));
-      border: 1px solid rgba(214, 211, 209, 0.8);
+      background: linear-gradient(135deg, rgba(9, 20, 31, 0.98), rgba(15, 23, 42, 0.92));
+      border: 1px solid rgba(125, 211, 252, 0.14);
       border-radius: 28px;
       padding: 28px;
       box-shadow: var(--shadow);
@@ -212,6 +217,26 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
     .status-pill.bad,
     .surface-pill.bad { color: var(--bad); background: var(--bad-bg); }
     .kind-pill { color: var(--accent); background: rgba(15, 118, 110, 0.08); }
+    .scenario-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      border: 1px solid transparent;
+    }
+    .scenario-pill.ok {
+      color: var(--ok);
+      background: rgba(34, 197, 94, 0.12);
+      border-color: rgba(113, 247, 184, 0.22);
+    }
+    .scenario-pill.bad {
+      color: var(--bad);
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(255, 141, 141, 0.2);
+    }
     .summary-grid,
     .coverage-grid,
     .scenario-grid {
@@ -227,7 +252,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
     .evidence-block,
     .global-gaps {
       background: var(--panel);
-      border: 1px solid rgba(214, 211, 209, 0.9);
+      border: 1px solid var(--line);
       border-radius: 22px;
       box-shadow: var(--shadow);
     }
@@ -261,6 +286,17 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       color: var(--muted);
       font-size: 0.96rem;
     }
+    .scenario-rollup {
+      margin-top: 22px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+    }
+    .scenario-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
     .coverage-card .status-note,
     .scenario-meta,
     .summary-list,
@@ -279,10 +315,10 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       padding: 22px;
       display: grid;
       gap: 18px;
-      border-top: 6px solid rgba(15, 118, 110, 0.18);
+      border-top: 6px solid rgba(113, 247, 184, 0.22);
     }
     .scenario-card.fail {
-      border-top-color: rgba(153, 27, 27, 0.34);
+      border-top-color: rgba(255, 141, 141, 0.3);
     }
     .scenario-head {
       display: flex;
@@ -309,7 +345,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
     }
     .evidence-block {
       padding: 16px;
-      background: rgba(255, 255, 255, 0.72);
+      background: rgba(15, 23, 42, 0.72);
     }
     .artifacts {
       display: grid;
@@ -318,18 +354,18 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       margin-top: 14px;
     }
     .artifact-card {
-      border: 1px solid rgba(214, 211, 209, 0.9);
+      border: 1px solid var(--line);
       border-radius: 18px;
       padding: 12px;
-      background: rgba(255, 255, 255, 0.78);
+      background: rgba(8, 16, 23, 0.62);
     }
     img {
       width: 100%;
       display: block;
       margin-top: 10px;
-      border: 1px solid rgba(214, 211, 209, 0.9);
+      border: 1px solid var(--line);
       border-radius: 12px;
-      background: white;
+      background: rgba(2, 6, 23, 0.9);
     }
     .assertion-list li {
       margin-bottom: 10px;
@@ -383,6 +419,29 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
           <div class="summary-value">{{ len .Scenarios }} scenario(s)</div>
         </article>
       </div>
+      <section class="scenario-rollup">
+        <div class="section-head">
+          <div>
+            <h2>Scenario Rollup</h2>
+            <div class="section-note">Compact pass/fail summary before the full evidence breakdown.</div>
+          </div>
+        </div>
+        <div class="summary-grid">
+          <article class="summary-card">
+            <div class="summary-label">Passed Scenarios</div>
+            <div class="summary-value">{{ passedScenarioCount .Scenarios }}</div>
+          </article>
+          <article class="summary-card">
+            <div class="summary-label">Failed Scenarios</div>
+            <div class="summary-value">{{ failedScenarioCount .Scenarios }}</div>
+          </article>
+        </div>
+        <div class="scenario-strip">
+          {{ range .Scenarios }}
+          <span class="scenario-pill {{ scenarioTone .Eval }}">{{ .Eval.Scenario.Label }}</span>
+          {{ end }}
+        </div>
+      </section>
       {{ if .Run.CurlEndpoints }}
       <div class="section" style="margin-top: 20px;">
         <div class="summary-label">Endpoints</div>
@@ -624,4 +683,31 @@ func curlModeLabel(run Run) string {
 		return "required"
 	}
 	return "skipped (" + run.CurlSkipReason + ")"
+}
+
+func scenarioTone(eval ScenarioEvaluation) string {
+	if scenarioComplete(eval) {
+		return "ok"
+	}
+	return "bad"
+}
+
+func passedScenarioCount(items []scenarioReport) int {
+	count := 0
+	for _, item := range items {
+		if scenarioComplete(item.Eval) {
+			count++
+		}
+	}
+	return count
+}
+
+func failedScenarioCount(items []scenarioReport) int {
+	count := 0
+	for _, item := range items {
+		if !scenarioComplete(item.Eval) {
+			count++
+		}
+	}
+	return count
 }

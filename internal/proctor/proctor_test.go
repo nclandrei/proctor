@@ -58,6 +58,9 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 	if !strings.Contains(reportText, "Proctor Report") || !strings.Contains(reportText, "summary-grid") {
 		t.Fatalf("expected report html to include the new summary layout, got:\n%s", reportText)
 	}
+	if !strings.Contains(reportText, "Scenario Rollup") || !strings.Contains(reportText, "--bg: #081017") {
+		t.Fatalf("expected report html to include the dark rollup layout, got:\n%s", reportText)
+	}
 }
 
 func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {
