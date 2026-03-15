@@ -469,6 +469,7 @@ func browserEvidenceIssues(store *Store, run Run, item Evidence) []string {
 	if item.Provenance.SessionID == "" {
 		issues = append(issues, "browser evidence is missing a registered session id")
 	}
+	issues = append(issues, browserReportStructureIssues(item)...)
 	issues = append(issues, assertionIssues(item.Assertions, "browser")...)
 
 	hasImage := false
@@ -492,6 +493,25 @@ func browserEvidenceIssues(store *Store, run Run, item Evidence) []string {
 		issues = append(issues, "browser evidence is missing a browser report")
 	}
 	return dedupeStrings(issues)
+}
+
+func browserReportStructureIssues(item Evidence) []string {
+	if item.Browser == nil {
+		return []string{"browser evidence is missing parsed browser report data"}
+	}
+
+	var issues []string
+	if strings.TrimSpace(item.Browser.Desktop.FinalURL) == "" {
+		issues = append(issues, "browser report is missing a desktop final URL")
+	}
+	if hasScreenshotLabel(item.Artifacts, "mobile") {
+		if item.Browser.Mobile == nil {
+			issues = append(issues, "browser report is missing mobile results for attached mobile screenshot")
+		} else if strings.TrimSpace(item.Browser.Mobile.FinalURL) == "" {
+			issues = append(issues, "browser report is missing a mobile final URL")
+		}
+	}
+	return issues
 }
 
 func curlEvidenceIssues(store *Store, run Run, item Evidence) []string {

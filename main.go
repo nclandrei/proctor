@@ -368,6 +368,8 @@ Browser evidence requirements:
   - a registered session id
   - at least one screenshot
   - a browser report JSON artifact
+  - the browser report must include a desktop final URL
+  - if you attach a mobile screenshot, the report must include mobile results with a final URL
   - at least one passing assertion
   - console/page/network/http issue counts default to zero unless explicitly asserted otherwise
   - supported assertions include:

@@ -400,6 +400,133 @@ func TestCurlEvaluationIncludesFailedAssertionDetails(t *testing.T) {
 	}
 }
 
+func TestMobileScreenshotRequiresMobileReportResults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "desktop-only-report.json", `{
+  "desktop": {
+    "title": "Login",
+    "finalUrl": "http://127.0.0.1:3000/dashboard",
+    "issues": {
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "pageErrors": 0,
+      "failedRequests": 0,
+      "httpErrors": 0
+    }
+  }
+}`)
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+			"mobile-success":  mobileShot,
+		},
+		PassAssertions: []string{
+			"final_url contains /dashboard",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.ScenarioEvaluations[0].BrowserOK {
+		t.Fatalf("expected browser evidence to fail without mobile report results")
+	}
+	if !containsSubstring(eval.ScenarioEvaluations[0].BrowserIssues, "browser report is missing mobile results for attached mobile screenshot") {
+		t.Fatalf("expected mobile report issue, got %#v", eval.ScenarioEvaluations[0].BrowserIssues)
+	}
+}
+
+func TestBrowserReportRequiresDesktopFinalURL(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "missing-final-url-report.json", `{
+  "desktop": {
+    "title": "Login",
+    "finalUrl": "",
+    "issues": {
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "pageErrors": 0,
+      "failedRequests": 0,
+      "httpErrors": 0
+    }
+  },
+  "mobile": {
+    "title": "Login",
+    "finalUrl": "http://127.0.0.1:3000/dashboard",
+    "issues": {
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "pageErrors": 0,
+      "failedRequests": 0,
+      "httpErrors": 0
+    }
+  }
+}`)
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+			"mobile-success":  mobileShot,
+		},
+		PassAssertions: []string{
+			"mobile.final_url contains /dashboard",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.ScenarioEvaluations[0].BrowserOK {
+		t.Fatalf("expected browser evidence to fail without a desktop final URL")
+	}
+	if !containsSubstring(eval.ScenarioEvaluations[0].BrowserIssues, "browser report is missing a desktop final URL") {
+		t.Fatalf("expected desktop final URL issue, got %#v", eval.ScenarioEvaluations[0].BrowserIssues)
+	}
+}
+
 func sampleStartOptions() StartOptions {
 	return StartOptions{
 		Feature:       "auth flow",
