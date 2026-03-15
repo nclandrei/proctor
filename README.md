@@ -188,6 +188,30 @@ This directory should contain the contract, artifacts, and generated reports for
 
 Proctor should produce a final document inspired by Showboat, but generated from recorded evidence instead of freehand markdown.
 
+There should be two output layers:
+
+- raw evidence artifacts, which are the machine-trusted source of truth
+- generated reports, which are the human-facing rendering of that evidence
+
+Raw evidence artifacts should include things like:
+
+- screenshots
+- browser JSON reports
+- curl transcripts
+- logs
+- pane captures
+- simulator screenshots
+
+Generated reports should include things like:
+
+- `contract.md`
+- `report.html`
+
+Important rule:
+
+- reports are derived from evidence
+- reports do not count as evidence by themselves
+
 Proposed outputs:
 
 - `contract.md`: the declared flow, required obligations, and pass or fail status
