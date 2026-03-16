@@ -40,6 +40,25 @@ func TestHelpCommandSupportsNestedTopics(t *testing.T) {
 	}
 }
 
+func TestCommandHelpSupportsIOSNestedSubcommandsWithoutActiveRun(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "ios", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "proctor record ios") {
+		t.Fatalf("expected ios help text, got:\n%s", text)
+	}
+	if !strings.Contains(text, "--report /abs/path/ios-report.json") {
+		t.Fatalf("expected ios help to include report flag example, got:\n%s", text)
+	}
+	if !strings.Contains(text, "app_launch = true") {
+		t.Fatalf("expected ios help to include launch assertions, got:\n%s", text)
+	}
+}
+
 func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 	text, ok, err := commandHelp([]string{"--help"})
 	if err != nil {
@@ -53,10 +72,31 @@ func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 		"proctor start --help",
 		"proctor record browser --help",
 		"--curl scenario",
+		"proctor record ios --help",
 		"report.html is always rendered in dark mode",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("expected help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
+func TestRootHelpMentionsIOSWorkflow(t *testing.T) {
+	text, ok, err := commandHelp([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"Typical iOS workflow",
+		"--platform ios",
+		"--ios-scheme Pagena",
+		"use your own simulator tooling",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected root help to mention %q, got:\n%s", needle, text)
 		}
 	}
 }
@@ -87,6 +127,22 @@ func TestRecordBrowserHelpMentionsRunWideMobileRequirement(t *testing.T) {
 	}
 	if !strings.Contains(text, "console warnings are recorded in the report but stay non-blocking unless you assert them explicitly") {
 		t.Fatalf("expected record browser help to explain the warning policy, got:\n%s", text)
+	}
+}
+
+func TestRecordIOSHelpMentionsImplicitHealthChecks(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "ios", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "launch_errors = 0") {
+		t.Fatalf("expected ios help to mention launch error assertions, got:\n%s", text)
+	}
+	if !strings.Contains(text, "implicit zero-issue assertions cover launch errors, crashes, and fatal logs") {
+		t.Fatalf("expected ios help to describe default ios health policy, got:\n%s", text)
 	}
 }
 

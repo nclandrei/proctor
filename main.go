@@ -66,8 +66,12 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	var endpoints stringList
 	var edgeCases stringList
 	opts := proctor.StartOptions{}
+	fs.StringVar(&opts.Platform, "platform", proctor.PlatformWeb, "")
 	fs.StringVar(&opts.Feature, "feature", "", "")
 	fs.StringVar(&opts.BrowserURL, "url", "", "")
+	fs.StringVar(&opts.IOSScheme, "ios-scheme", "", "")
+	fs.StringVar(&opts.IOSBundleID, "ios-bundle-id", "", "")
+	fs.StringVar(&opts.IOSSimulator, "ios-simulator", "", "")
 	fs.StringVar(&opts.CurlMode, "curl", "", "")
 	fs.Var(&endpoints, "curl-endpoint", "")
 	fs.StringVar(&opts.CurlSkipReason, "curl-skip-reason", "", "")
@@ -111,6 +115,13 @@ func runStatus(store *proctor.Store, cwd string) error {
 				fmt.Printf("  browser: fail (%s)\n", strings.Join(item.BrowserIssues, ", "))
 			}
 		}
+		if item.Scenario.IOSRequired {
+			if item.IOSOK {
+				fmt.Println("  ios: pass")
+			} else {
+				fmt.Printf("  ios: fail (%s)\n", strings.Join(item.IOSIssues, ", "))
+			}
+		}
 		if item.Scenario.CurlRequired {
 			if len(item.Scenario.CurlEndpoints) > 0 {
 				fmt.Printf("  curl contract: %s\n", strings.Join(item.Scenario.CurlEndpoints, "; "))
@@ -138,7 +149,7 @@ func runStatus(store *proctor.Store, cwd string) error {
 
 func runRecord(store *proctor.Store, cwd string, args []string) error {
 	if len(args) == 0 {
-		return errors.New("record requires a surface: browser or curl")
+		return errors.New("record requires a surface: browser, ios, or curl")
 	}
 	run, err := store.LoadRun(proctor.RepoRoot(cwd))
 	if err != nil {
@@ -147,6 +158,8 @@ func runRecord(store *proctor.Store, cwd string, args []string) error {
 	switch args[0] {
 	case "browser":
 		return runRecordBrowser(store, run, args[1:])
+	case "ios":
+		return runRecordIOS(store, run, args[1:])
 	case "curl":
 		return runRecordCurl(store, run, args[1:])
 	default:
@@ -185,6 +198,40 @@ func runRecordBrowser(store *proctor.Store, run proctor.Run, args []string) erro
 		return err
 	}
 	fmt.Printf("Recorded browser evidence for %s\n", opts.ScenarioID)
+	return nil
+}
+
+func runRecordIOS(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("record ios", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var screenshots stringList
+	var passAssertions stringList
+	var failAssertions stringList
+	opts := proctor.IOSRecordOptions{}
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Tool, "tool", "ios-simulator", "")
+	fs.StringVar(&opts.ReportPath, "report", "", "")
+	fs.Var(&screenshots, "screenshot", "")
+	fs.Var(&passAssertions, "assert", "")
+	fs.Var(&failAssertions, "fail-assert", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	opts.Screenshots = map[string]string{}
+	for _, item := range screenshots {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			return fmt.Errorf("invalid screenshot format: %s", item)
+		}
+		opts.Screenshots[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	opts.PassAssertions = passAssertions
+	opts.FailAssertions = failAssertions
+	if err := proctor.RecordIOS(store, run, opts); err != nil {
+		return err
+	}
+	fmt.Printf("Recorded ios evidence for %s\n", opts.ScenarioID)
 	return nil
 }
 
@@ -229,6 +276,9 @@ func runDone(store *proctor.Store, cwd string) error {
 		if item.Scenario.BrowserRequired && !item.BrowserOK {
 			fmt.Printf("- %s: %s\n", item.Scenario.ID, strings.Join(item.BrowserIssues, ", "))
 		}
+		if item.Scenario.IOSRequired && !item.IOSOK {
+			fmt.Printf("- %s: %s\n", item.Scenario.ID, strings.Join(item.IOSIssues, ", "))
+		}
 		if item.Scenario.CurlRequired && !item.CurlOK {
 			fmt.Printf("- %s: %s\n", item.Scenario.ID, strings.Join(item.CurlIssues, ", "))
 		}
@@ -260,7 +310,18 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 			return err
 		}
 	}
-	if strings.TrimSpace(opts.BrowserURL) == "" {
+	if strings.EqualFold(strings.TrimSpace(opts.Platform), proctor.PlatformIOS) {
+		if strings.TrimSpace(opts.IOSScheme) == "" {
+			if opts.IOSScheme, err = prompt(reader, out, "iOS scheme"); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(opts.IOSBundleID) == "" {
+			if opts.IOSBundleID, err = prompt(reader, out, "iOS bundle id"); err != nil {
+				return err
+			}
+		}
+	} else if strings.TrimSpace(opts.BrowserURL) == "" {
 		if opts.BrowserURL, err = prompt(reader, out, "Browser URL"); err != nil {
 			return err
 		}
@@ -276,7 +337,7 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 		}
 	}
 	if len(opts.EdgeCaseInputs) == 0 {
-		for _, category := range proctor.EdgeCaseCategories {
+		for _, category := range proctor.EdgeCaseCategoriesForPlatform(opts.Platform) {
 			answer, err := prompt(reader, out, fmt.Sprintf("%s (scenario(s) separated by ';' or N/A: reason)", category))
 			if err != nil {
 				return err

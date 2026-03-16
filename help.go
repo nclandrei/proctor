@@ -50,6 +50,10 @@ func commandHelp(args []string) (string, bool, error) {
 			if wantsHelp(args[2:]) {
 				return recordBrowserHelpText(), true, nil
 			}
+		case "ios":
+			if wantsHelp(args[2:]) {
+				return recordIOSHelpText(), true, nil
+			}
 		case "curl":
 			if wantsHelp(args[2:]) {
 				return recordCurlHelpText(), true, nil
@@ -84,6 +88,8 @@ func topicHelp(args []string) (string, error) {
 		switch args[1] {
 		case "browser":
 			return recordBrowserHelpText(), nil
+		case "ios":
+			return recordIOSHelpText(), nil
 		case "curl":
 			return recordCurlHelpText(), nil
 		default:
@@ -124,6 +130,7 @@ Typical prompt to give an agent:
 
 Typical web workflow:
   proctor start \
+    --platform web \
     --feature "new authentication flow" \
     --url http://127.0.0.1:3000/login \
     --curl scenario \
@@ -173,6 +180,39 @@ Typical web workflow:
   proctor done
   proctor report
 
+Typical iOS workflow:
+  proctor start \
+    --platform ios \
+    --feature "reader library relaunch" \
+    --ios-scheme Pagena \
+    --ios-bundle-id com.example.pagena \
+    --ios-simulator "iPhone 16 Pro" \
+    --curl skip \
+    --curl-skip-reason "UI-only iOS verification for this pass." \
+    --happy-path "Launching the app lands on the library screen." \
+    --failure-path "Missing content shows a visible recovery state instead of a blank screen." \
+    --edge-case "validation and malformed input=N/A: no freeform input in this flow" \
+    --edge-case "empty or missing input=N/A: no required input in this flow" \
+    --edge-case "retry or double-submit=N/A: no repeated mutation in this flow" \
+    --edge-case "loading, latency, and race conditions=Loading placeholder settles once without duplicate content." \
+    --edge-case "network or server failure=Offline launch shows a recoverable empty state." \
+    --edge-case "auth and session state=N/A: anonymous browsing only" \
+    --edge-case "app lifecycle, relaunch, and state persistence=Foregrounding the app keeps the same selected title." \
+    --edge-case "device traits, orientation, and layout=Library remains readable on the target simulator." \
+    --edge-case "accessibility, dynamic type, and keyboard behavior=N/A: this pass is visual only" \
+    --edge-case "any feature-specific risks=N/A: no extra feature-specific risks for this flow"
+
+  # use your own simulator tooling to build, launch, screenshot, and inspect logs.
+  # Proctor only needs the recorded artifacts and a small ios-report.json file.
+  proctor record ios \
+    --scenario happy-path \
+    --session pagena-library-1 \
+    --report /abs/path/ios-report.json \
+    --screenshot library=/abs/path/library.png \
+    --assert 'screen contains Library' \
+    --assert 'bundle_id = com.example.pagena' \
+    --assert 'app_launch = true'
+
 What counts as browser evidence:
   - a session id string for the browser run
   - a desktop screenshot
@@ -218,9 +258,38 @@ The browser report only needs a small shape:
 If your browser tool does not emit this exact file, you can still use Proctor:
 capture the real browser data, then write a tiny JSON file with these fields.
 
+What counts as iOS evidence:
+  - a simulator or run session id string
+  - at least one simulator screenshot
+  - an ios-report.json artifact with simulator, app, and issue metadata
+  - assertions tied to the scenario
+
+The iOS report only needs a small shape:
+  {
+    "simulator": {
+      "name": "iPhone 16 Pro",
+      "runtime": "iOS 18.2"
+    },
+    "app": {
+      "bundleId": "com.example.pagena",
+      "screen": "Library",
+      "state": "foreground"
+    },
+    "issues": {
+      "launchErrors": 0,
+      "crashes": 0,
+      "fatalLogs": 0
+    }
+  }
+
+use your own simulator tooling. Proctor does not boot the simulator, call Xcode,
+or take the screenshots for you. It only records the evidence and blocks
+completion when the contract is incomplete.
+
 Use subcommand help for exact flags:
   proctor start --help
   proctor record browser --help
+  proctor record ios --help
   proctor record curl --help
   proctor done --help
 
@@ -242,14 +311,22 @@ Usage:
 You can run start interactively, but agents usually do better with explicit
 flags so the contract is reproducible.
 
-Required web flags:
+Required:
+  --platform web|ios         Defaults to web
   --feature TEXT             Human label for the feature or flow under test
-  --url URL                  Browser URL for the flow
   --curl required|scenario|skip
                              HTTP verification mode for the contract
   --happy-path TEXT          Primary success scenario
   --failure-path TEXT        Primary failure or back-out scenario
   --edge-case "CATEGORY=..." Edge-case coverage by category
+
+Platform-specific flags:
+  web:
+    --url URL                Browser URL for the flow
+  ios:
+    --ios-scheme TEXT        Xcode scheme or app target name
+    --ios-bundle-id TEXT     App bundle id to launch on the simulator
+    --ios-simulator TEXT     Optional simulator label to pin the intended device
 
 Conditional flags:
   --curl-endpoint TEXT       Repeat once per endpoint when --curl required
@@ -271,14 +348,19 @@ Edge-case format:
   --edge-case "CATEGORY=N/A: short reason"
 
 Every category must be covered either by scenarios or by an explicit N/A reason.
-Current categories:
+Web categories:
 `)
-	for _, category := range proctor.EdgeCaseCategories {
+	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformWeb) {
+		b.WriteString("  - " + category + "\n")
+	}
+	b.WriteString("\niOS categories:\n")
+	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformIOS) {
 		b.WriteString("  - " + category + "\n")
 	}
 	b.WriteString(`
 Static web example:
   proctor start \
+    --platform web \
     --feature "What Did I Just Watch finder" \
     --url http://127.0.0.1:4174/kimarite \
     --curl skip \
@@ -298,6 +380,7 @@ Static web example:
 
 HTTP-backed example:
   proctor start \
+    --platform web \
     --feature "new authentication flow" \
     --url http://127.0.0.1:3000/login \
     --curl scenario \
@@ -317,9 +400,31 @@ HTTP-backed example:
     --edge-case "accessibility and keyboard behavior=Enter submits from the password field; tab order stays correct" \
     --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 
+iOS example:
+  proctor start \
+    --platform ios \
+    --feature "reader library relaunch" \
+    --ios-scheme Pagena \
+    --ios-bundle-id com.example.pagena \
+    --ios-simulator "iPhone 16 Pro" \
+    --curl skip \
+    --curl-skip-reason "UI-only iOS verification for this pass." \
+    --happy-path "Launching the app lands on the library screen." \
+    --failure-path "Missing content shows a visible recovery state instead of a blank screen." \
+    --edge-case "validation and malformed input=N/A: no freeform input in this flow" \
+    --edge-case "empty or missing input=N/A: no required input in this flow" \
+    --edge-case "retry or double-submit=N/A: no repeated mutation in this flow" \
+    --edge-case "loading, latency, and race conditions=Loading placeholder settles once without duplicate content." \
+    --edge-case "network or server failure=Offline launch shows a recoverable empty state." \
+    --edge-case "auth and session state=N/A: anonymous browsing only" \
+    --edge-case "app lifecycle, relaunch, and state persistence=Foregrounding the app keeps the same selected title." \
+    --edge-case "device traits, orientation, and layout=Library remains readable on the target simulator." \
+    --edge-case "accessibility, dynamic type, and keyboard behavior=N/A: this pass is visual only" \
+    --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
+
 After start:
-  - run your browser checks
-  - attach evidence with proctor record browser
+  - run your platform checks
+  - attach web evidence with proctor record browser or iOS evidence with proctor record ios
   - wrap curl with proctor record curl for the scenarios that require it
   - finish with proctor done
 `)
@@ -331,14 +436,17 @@ func recordHelpText() string {
 
 Usage:
   proctor record browser [flags]
+  proctor record ios [flags]
   proctor record curl [flags] -- <command>
 
 Use:
   proctor record browser --help
+  proctor record ios --help
   proctor record curl --help
 
 Important:
   - browser evidence attaches one browser run to one named scenario
+  - ios evidence attaches one simulator run to one named scenario
   - curl evidence wraps one real command for one named scenario
   - curl requirements are decided per scenario, not by endpoint alone
   - only recorded evidence counts toward proctor done
@@ -426,6 +534,79 @@ Notes:
 `
 }
 
+func recordIOSHelpText() string {
+	return `proctor record ios - attach iOS simulator evidence to one scenario
+
+Usage:
+  proctor record ios \
+    --scenario ID \
+    --session SESSION \
+    --report /abs/path/ios-report.json \
+    --screenshot LABEL=/abs/path/screen.png \
+    --assert 'EXPRESSION' \
+    [--assert 'EXPRESSION' ...]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable simulator session label or run id string
+  --report PATH              JSON report with simulator, app, and issue metadata
+  --screenshot LABEL=PATH    At least one screenshot from the verified simulator run
+  --assert TEXT              At least one passing assertion
+
+Optional:
+  --tool NAME                Defaults to ios-simulator
+  --fail-assert TEXT         Invert one assertion when you need to prove a failure condition
+
+Supported ios assertions:
+  screen contains Library
+  bundle_id = com.example.pagena
+  simulator contains iPhone 16 Pro
+  runtime contains iOS
+  state = foreground
+  app_launch = true
+  launch_errors = 0
+  crashes = 0
+  fatal_logs = 0
+  screenshot = true
+
+Expected report JSON shape:
+  {
+    "simulator": {
+      "name": "iPhone 16 Pro",
+      "runtime": "iOS 18.2"
+    },
+    "app": {
+      "bundleId": "com.example.pagena",
+      "screen": "Library",
+      "state": "foreground"
+    },
+    "issues": {
+      "launchErrors": 0,
+      "crashes": 0,
+      "fatalLogs": 0
+    }
+  }
+
+The JSON can be synthesized from real simulator-session output. It does not need
+to be emitted by one specific helper.
+
+Example:
+  proctor record ios \
+    --scenario happy-path \
+    --session pagena-library-1 \
+    --report /abs/path/ios-report.json \
+    --screenshot library=/abs/path/library.png \
+    --assert 'screen contains Library' \
+    --assert 'bundle_id = com.example.pagena' \
+    --assert 'app_launch = true'
+
+Notes:
+  - one simulator report can be reused for multiple scenarios if it genuinely proves each one
+  - every ios run must record at least one screenshot before proctor done can pass
+  - implicit zero-issue assertions cover launch errors, crashes, and fatal logs
+`
+}
+
 func recordCurlHelpText() string {
 	return `proctor record curl - wrap one real HTTP command for one scenario
 
@@ -476,8 +657,9 @@ Usage:
 This prints:
   - every scenario in the contract
   - whether browser evidence passes or fails
+  - whether ios evidence passes or fails
   - whether curl evidence passes or fails for scenarios that require it
-  - any global gaps such as missing desktop or mobile screenshots
+  - any global gaps such as missing required screenshots
 
 Use this after each record step so the agent can see what is still missing.
 `
@@ -492,7 +674,8 @@ Usage:
 Passes only when:
   - every required scenario has valid evidence
   - browser scenarios have trusted browser evidence
-  - the run includes both desktop and mobile screenshot coverage
+  - ios scenarios have trusted ios evidence
+  - the run includes the required screenshot coverage for its platform
   - required assertions pass
   - artifact hashes still match
 

@@ -11,6 +11,12 @@ import (
 )
 
 func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
+	platform := normalizePlatform(opts.Platform)
+	switch platform {
+	case PlatformWeb, PlatformIOS:
+	default:
+		return Run{}, fmt.Errorf("--platform must be either web or ios")
+	}
 	curlMode := strings.ToLower(strings.TrimSpace(opts.CurlMode))
 	switch curlMode {
 	case CurlModeRequired, CurlModeScenario, CurlModeSkip:
@@ -20,8 +26,14 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 	if strings.TrimSpace(opts.Feature) == "" {
 		return Run{}, fmt.Errorf("--feature is required")
 	}
-	if strings.TrimSpace(opts.BrowserURL) == "" {
-		return Run{}, fmt.Errorf("--url is required")
+	if platform == PlatformWeb && strings.TrimSpace(opts.BrowserURL) == "" {
+		return Run{}, fmt.Errorf("--url is required when --platform web")
+	}
+	if platform == PlatformIOS && strings.TrimSpace(opts.IOSScheme) == "" {
+		return Run{}, fmt.Errorf("--ios-scheme is required when --platform ios")
+	}
+	if platform == PlatformIOS && strings.TrimSpace(opts.IOSBundleID) == "" {
+		return Run{}, fmt.Errorf("--ios-bundle-id is required when --platform ios")
 	}
 	if strings.TrimSpace(opts.HappyPath) == "" {
 		return Run{}, fmt.Errorf("--happy-path is required")
@@ -46,13 +58,16 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		return Run{}, err
 	}
 	now := time.Now().UTC()
+	browserRequired, iosRequired := uiRequirementsForPlatform(platform)
 	run := Run{
 		ID:             newID("run"),
 		RepoRoot:       repoRoot,
 		RepoSlug:       repoSlug,
+		Platform:       platform,
 		Feature:        strings.TrimSpace(opts.Feature),
 		BrowserURL:     strings.TrimSpace(opts.BrowserURL),
 		CurlMode:       curlMode,
+		IOS:            IOSTarget{Scheme: strings.TrimSpace(opts.IOSScheme), BundleID: strings.TrimSpace(opts.IOSBundleID), Simulator: strings.TrimSpace(opts.IOSSimulator)},
 		CurlRequired:   curlMode == CurlModeRequired,
 		CurlEndpoints:  legacyRunCurlEndpoints(curlMode, curlEndpoints),
 		CurlSkipReason: strings.TrimSpace(opts.CurlSkipReason),
@@ -61,19 +76,26 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		UpdatedAt:      now,
 	}
 
-	edgeCategories, edgeScenarios := parseEdgeCaseInputs(opts.EdgeCaseInputs)
-	run.EdgeCaseCategories = edgeCategories
-	run.Scenarios = append(run.Scenarios, Scenario{
+	run.HappyPath = Scenario{
 		ID:              "happy-path",
 		Label:           strings.TrimSpace(opts.HappyPath),
 		Kind:            "happy-path",
-		BrowserRequired: true,
-	}, Scenario{
+		BrowserRequired: browserRequired,
+		IOSRequired:     iosRequired,
+		CurlRequired:    run.CurlRequired,
+	}
+	run.FailurePath = Scenario{
 		ID:              "failure-path",
 		Label:           strings.TrimSpace(opts.FailurePath),
 		Kind:            "failure-path",
-		BrowserRequired: true,
-	})
+		BrowserRequired: browserRequired,
+		IOSRequired:     iosRequired,
+		CurlRequired:    run.CurlRequired,
+	}
+	run.Scenarios = append(run.Scenarios, run.HappyPath, run.FailurePath)
+
+	edgeCategories, edgeScenarios := parseEdgeCaseInputs(platform, opts.EdgeCaseInputs)
+	run.EdgeCaseCategories = edgeCategories
 	run.Scenarios = append(run.Scenarios, edgeScenarios...)
 	if err := applyScenarioCurlPlan(&run, curlMode, curlEndpoints); err != nil {
 		return Run{}, err
@@ -174,6 +196,78 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	return nil
 }
 
+func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
+	scenario, ok := findScenario(run, opts.ScenarioID)
+	if !ok {
+		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
+	}
+	if opts.SessionID == "" {
+		return fmt.Errorf("ios evidence requires --session")
+	}
+	if opts.ReportPath == "" {
+		return fmt.Errorf("ios evidence requires --report")
+	}
+	if len(opts.Screenshots) == 0 {
+		return fmt.Errorf("ios evidence requires at least one --screenshot")
+	}
+
+	var artifacts []Artifact
+	for label, source := range opts.Screenshots {
+		artifact, err := store.CopyArtifact(run, SurfaceIOS, scenario.ID, label, source)
+		if err != nil {
+			return err
+		}
+		artifact.Kind = ArtifactImage
+		artifacts = append(artifacts, artifact)
+	}
+	reportArtifact, err := store.CopyArtifact(run, SurfaceIOS, scenario.ID, "ios-report", opts.ReportPath)
+	if err != nil {
+		return err
+	}
+	reportArtifact.Kind = ArtifactJSONReport
+	reportArtifact.MediaType = "application/json"
+	artifacts = append(artifacts, reportArtifact)
+
+	reportData, err := ParseIOSReport(opts.ReportPath)
+	if err != nil {
+		return err
+	}
+	assertions, err := EvaluateIOSAssertions(opts.PassAssertions, opts.FailAssertions, reportData, artifacts)
+	if err != nil {
+		return err
+	}
+	if len(assertions) == 0 {
+		return fmt.Errorf("ios evidence requires at least one assertion")
+	}
+
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: scenario.ID,
+		Surface:    SurfaceIOS,
+		Tier:       TierRegisteredRun,
+		CreatedAt:  time.Now().UTC(),
+		Title:      fmt.Sprintf("iOS verification for %s", scenario.Label),
+		Provenance: Provenance{
+			Mode:       "registered-simulator-session",
+			Tool:       firstNonEmpty(opts.Tool, "ios-simulator"),
+			SessionID:  opts.SessionID,
+			CWD:        run.RepoRoot,
+			RecordedBy: "proctor",
+		},
+		Assertions: assertions,
+		Artifacts:  artifacts,
+		IOS:        &reportData,
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		return err
+	}
+	if err := writeReports(store, run); err != nil {
+		return err
+	}
+	return nil
+}
+
 func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 	scenario, ok := findScenario(run, opts.ScenarioID)
 	if !ok {
@@ -256,16 +350,31 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	}
 
 	eval := Evaluation{Complete: true}
-	hasDesktop, hasMobile := browserVisualCoverage(store, run, evidence)
+	hasDesktop := false
+	hasMobile := false
+	hasIOSScreenshot := false
+	switch normalizePlatform(run.Platform) {
+	case PlatformIOS:
+		hasIOSScreenshot = iosVisualCoverage(store, run, evidence)
+	default:
+		hasDesktop, hasMobile = browserVisualCoverage(store, run, evidence)
+	}
 
 	for _, scenario := range run.Scenarios {
 		scenarioEval := ScenarioEvaluation{Scenario: scenario}
 		browserEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceBrowser)
+		iosEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceIOS)
 		curlEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCurl)
 
 		if scenario.BrowserRequired {
 			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, scenario, browserEvidence)
 			if !scenarioEval.BrowserOK {
+				eval.Complete = false
+			}
+		}
+		if scenario.IOSRequired {
+			scenarioEval.IOSOK, scenarioEval.IOSIssues = validateIOSEvidence(store, run, iosEvidence)
+			if !scenarioEval.IOSOK {
 				eval.Complete = false
 			}
 		}
@@ -280,13 +389,21 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 		eval.ScenarioEvaluations = append(eval.ScenarioEvaluations, scenarioEval)
 	}
 
-	if !hasDesktop {
-		eval.Complete = false
-		eval.GlobalMissing = append(eval.GlobalMissing, "at least one desktop screenshot")
-	}
-	if !hasMobile {
-		eval.Complete = false
-		eval.GlobalMissing = append(eval.GlobalMissing, "at least one mobile screenshot")
+	switch normalizePlatform(run.Platform) {
+	case PlatformIOS:
+		if !hasIOSScreenshot {
+			eval.Complete = false
+			eval.GlobalMissing = append(eval.GlobalMissing, "at least one iOS screenshot")
+		}
+	default:
+		if !hasDesktop {
+			eval.Complete = false
+			eval.GlobalMissing = append(eval.GlobalMissing, "at least one desktop screenshot")
+		}
+		if !hasMobile {
+			eval.Complete = false
+			eval.GlobalMissing = append(eval.GlobalMissing, "at least one mobile screenshot")
+		}
 	}
 
 	return eval, nil
@@ -316,6 +433,23 @@ func browserVisualCoverage(store *Store, run Run, evidence []Evidence) (bool, bo
 		}
 	}
 	return hasDesktop, hasMobile
+}
+
+func iosVisualCoverage(store *Store, run Run, evidence []Evidence) bool {
+	for _, item := range evidence {
+		if item.Surface != SurfaceIOS || item.Tier < TierRegisteredRun {
+			continue
+		}
+		for _, artifact := range item.Artifacts {
+			if artifact.Kind != ArtifactImage {
+				continue
+			}
+			if err := store.VerifyArtifactHash(run, artifact); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func CompleteRun(store *Store, run Run) (Evaluation, error) {
@@ -552,10 +686,11 @@ func splitAndNormalize(value, sep string) []string {
 	return normalized
 }
 
-func parseEdgeCaseInputs(inputs []string) ([]EdgeCaseCategory, []Scenario) {
+func parseEdgeCaseInputs(platform string, inputs []string) ([]EdgeCaseCategory, []Scenario) {
 	var categories []EdgeCaseCategory
 	var scenarios []Scenario
-	for _, category := range EdgeCaseCategories {
+	browserRequired, iosRequired := uiRequirementsForPlatform(platform)
+	for _, category := range EdgeCaseCategoriesForPlatform(platform) {
 		entry := EdgeCaseCategory{Category: category}
 		response := ""
 		for _, input := range inputs {
@@ -596,7 +731,8 @@ func parseEdgeCaseInputs(inputs []string) ([]EdgeCaseCategory, []Scenario) {
 				Label:           part,
 				Kind:            "edge-case",
 				Category:        category,
-				BrowserRequired: true,
+				BrowserRequired: browserRequired,
+				IOSRequired:     iosRequired,
 				CurlRequired:    false,
 			}
 			entry.ScenarioIDs = append(entry.ScenarioIDs, scenario.ID)
@@ -639,6 +775,23 @@ func validateBrowserEvidence(store *Store, run Run, scenario Scenario, items []E
 	var issues []string
 	for _, item := range items {
 		issues = append(issues, browserEvidenceIssues(store, run, scenario, item)...)
+	}
+	return false, dedupeStrings(issues)
+}
+
+func validateIOSEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+	if len(items) == 0 {
+		return false, []string{"missing ios evidence"}
+	}
+	for _, item := range items {
+		issues := iosEvidenceIssues(store, run, item)
+		if len(issues) == 0 {
+			return true, nil
+		}
+	}
+	var issues []string
+	for _, item := range items {
+		issues = append(issues, iosEvidenceIssues(store, run, item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -711,6 +864,40 @@ func browserEvidenceIssues(store *Store, run Run, scenario Scenario, item Eviden
 	return dedupeStrings(issues)
 }
 
+func iosEvidenceIssues(store *Store, run Run, item Evidence) []string {
+	var issues []string
+	if item.Tier < TierRegisteredRun {
+		issues = append(issues, fmt.Sprintf("ios evidence tier %d is below required tier %d", item.Tier, TierRegisteredRun))
+	}
+	if item.Provenance.SessionID == "" {
+		issues = append(issues, "ios evidence is missing a simulator session id")
+	}
+	issues = append(issues, iosReportStructureIssues(item)...)
+	issues = append(issues, assertionIssues(item.Assertions, "ios")...)
+
+	hasImage := false
+	hasReport := false
+	for _, artifact := range item.Artifacts {
+		if err := store.VerifyArtifactHash(run, artifact); err != nil {
+			issues = append(issues, fmt.Sprintf("artifact hash mismatch for %s", artifact.Label))
+			continue
+		}
+		switch artifact.Kind {
+		case ArtifactImage:
+			hasImage = true
+		case ArtifactJSONReport:
+			hasReport = true
+		}
+	}
+	if !hasImage {
+		issues = append(issues, "ios evidence is missing a screenshot")
+	}
+	if !hasReport {
+		issues = append(issues, "ios evidence is missing an ios report")
+	}
+	return dedupeStrings(issues)
+}
+
 func scenarioSpecificBrowserIssues(scenario Scenario, item Evidence) []string {
 	if !scenarioNeedsMobileProof(scenario) {
 		return nil
@@ -749,6 +936,24 @@ func browserReportStructureIssues(item Evidence) []string {
 		} else if strings.TrimSpace(item.Browser.Mobile.FinalURL) == "" {
 			issues = append(issues, "browser report is missing a mobile final URL")
 		}
+	}
+	return issues
+}
+
+func iosReportStructureIssues(item Evidence) []string {
+	if item.IOS == nil {
+		return []string{"ios evidence is missing parsed ios report data"}
+	}
+
+	var issues []string
+	if strings.TrimSpace(item.IOS.BundleID) == "" {
+		issues = append(issues, "ios report is missing an app bundle id")
+	}
+	if strings.TrimSpace(item.IOS.Screen) == "" {
+		issues = append(issues, "ios report is missing a screen description")
+	}
+	if strings.TrimSpace(item.IOS.Simulator.Name) == "" {
+		issues = append(issues, "ios report is missing a simulator name")
 	}
 	return issues
 }
@@ -835,4 +1040,13 @@ func firstNonEmpty(values ...string) string {
 
 func newID(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
+}
+
+func uiRequirementsForPlatform(platform string) (bool, bool) {
+	switch normalizePlatform(platform) {
+	case PlatformIOS:
+		return false, true
+	default:
+		return true, false
+	}
 }

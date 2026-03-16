@@ -48,7 +48,17 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 	var md strings.Builder
 	md.WriteString(fmt.Sprintf("# %s\n\n", run.Feature))
 	md.WriteString(fmt.Sprintf("- Run ID: `%s`\n", run.ID))
-	md.WriteString(fmt.Sprintf("- Browser URL: `%s`\n", run.BrowserURL))
+	md.WriteString(fmt.Sprintf("- Platform: `%s`\n", normalizePlatform(run.Platform)))
+	switch normalizePlatform(run.Platform) {
+	case PlatformIOS:
+		md.WriteString(fmt.Sprintf("- iOS scheme: `%s`\n", run.IOS.Scheme))
+		md.WriteString(fmt.Sprintf("- iOS bundle ID: `%s`\n", run.IOS.BundleID))
+		if strings.TrimSpace(run.IOS.Simulator) != "" {
+			md.WriteString(fmt.Sprintf("- Simulator: `%s`\n", run.IOS.Simulator))
+		}
+	default:
+		md.WriteString(fmt.Sprintf("- Browser URL: `%s`\n", run.BrowserURL))
+	}
 	if len(curlRequirements) > 0 {
 		md.WriteString(fmt.Sprintf("- Direct HTTP verification: required for %d scenario(s)\n", len(curlRequirements)))
 	} else if strings.TrimSpace(run.CurlSkipReason) != "" {
@@ -94,6 +104,13 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 				md.WriteString(fmt.Sprintf("- Browser: fail (%s)\n", strings.Join(scenario.Eval.BrowserIssues, ", ")))
 			}
 		}
+		if scenario.Eval.EvalHasIOS() {
+			if scenario.Eval.IOSOK {
+				md.WriteString("- iOS: pass\n")
+			} else {
+				md.WriteString(fmt.Sprintf("- iOS: fail (%s)\n", strings.Join(scenario.Eval.IOSIssues, ", ")))
+			}
+		}
 		if scenario.Eval.Scenario.CurlRequired {
 			if scenario.Eval.CurlOK {
 				md.WriteString("- curl: pass\n")
@@ -116,6 +133,9 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 				if assertion.Expected != "" || assertion.Actual != "" {
 					md.WriteString(fmt.Sprintf("  - expected: `%s`\n", assertion.Expected))
 					md.WriteString(fmt.Sprintf("  - actual: `%s`\n", assertion.Actual))
+				}
+				if assertion.Message != "" {
+					md.WriteString(fmt.Sprintf("  - note: %s\n", assertion.Message))
 				}
 			}
 			for _, artifact := range item.Artifacts {
@@ -152,6 +172,8 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 		"passedScenarioCount":  passedScenarioCount,
 		"failedScenarioCount":  failedScenarioCount,
 		"curlModeLabel":        curlModeLabel,
+		"runTargetLabel":       runTargetLabel,
+		"runTargetValue":       runTargetValue,
 	}).Parse(`<!doctype html>
 <html>
 <head>
@@ -587,8 +609,8 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
           <div class="summary-value"><code>{{ .Run.ID }}</code></div>
         </article>
         <article class="summary-card">
-          <div class="summary-label">Browser URL</div>
-          <div class="summary-value"><code>{{ .Run.BrowserURL }}</code></div>
+          <div class="summary-label">{{ runTargetLabel .Run }}</div>
+          <div class="summary-value"><code>{{ runTargetValue .Run }}</code></div>
         </article>
         <article class="summary-card">
           <div class="summary-label">Direct HTTP Verification</div>
@@ -684,6 +706,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
             </div>
             <div class="scenario-status">
               {{ if .Eval.EvalHasBrowser }}{{ if .Eval.BrowserOK }}<span class="surface-pill ok">browser: pass</span>{{ else }}<span class="surface-pill bad">browser: fail</span>{{ end }}{{ end }}
+              {{ if .Eval.EvalHasIOS }}{{ if .Eval.IOSOK }}<span class="surface-pill ok">ios: pass</span>{{ else }}<span class="surface-pill bad">ios: fail</span>{{ end }}{{ end }}
               {{ if .Eval.Scenario.CurlRequired }}{{ if .Eval.CurlOK }}<span class="surface-pill ok">curl: pass</span>{{ else }}<span class="surface-pill bad">curl: fail</span>{{ end }}{{ end }}
             </div>
 	          </div>
@@ -692,6 +715,9 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 	          {{ end }}
 	          {{ if and .Eval.EvalHasBrowser (not .Eval.BrowserOK) }}
 	          <ul class="gap-list">{{ range .Eval.BrowserIssues }}<li>{{ . }}</li>{{ end }}</ul>
+          {{ end }}
+          {{ if and .Eval.EvalHasIOS (not .Eval.IOSOK) }}
+          <ul class="gap-list">{{ range .Eval.IOSIssues }}<li>{{ . }}</li>{{ end }}</ul>
           {{ end }}
           {{ if and .Eval.Scenario.CurlRequired (not .Eval.CurlOK) }}
           <ul class="gap-list">{{ range .Eval.CurlIssues }}<li>{{ . }}</li>{{ end }}</ul>
@@ -714,6 +740,9 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
                   {{ if or .Expected .Actual }}
                   <span class="inline-detail">expected: <code>{{ .Expected }}</code></span>
                   <span class="inline-detail">actual: <code>{{ .Actual }}</code></span>
+                  {{ end }}
+                  {{ if .Message }}
+                  <span class="inline-detail">{{ .Message }}</span>
                   {{ end }}
                 </li>
                 {{ end }}
@@ -817,6 +846,10 @@ func groupEvidenceByScenario(eval Evaluation, evidence []Evidence) []scenarioRep
 
 func (s ScenarioEvaluation) EvalHasBrowser() bool {
 	return s.Scenario.BrowserRequired
+}
+
+func (s ScenarioEvaluation) EvalHasIOS() bool {
+	return s.Scenario.IOSRequired
 }
 
 type edgeCoverageRow struct {
@@ -949,6 +982,8 @@ func evidenceSummaryLines(item Evidence) []string {
 	switch item.Surface {
 	case SurfaceBrowser:
 		return browserSummaryLines(item)
+	case SurfaceIOS:
+		return iosSummaryLines(item)
 	case SurfaceCurl:
 		return curlSummaryLines(item)
 	default:
@@ -975,6 +1010,27 @@ func browserSummaryLines(item Evidence) []string {
 	return lines
 }
 
+func iosSummaryLines(item Evidence) []string {
+	if item.IOS == nil {
+		return nil
+	}
+	lines := []string{
+		fmt.Sprintf("Tool: `%s`", item.Provenance.Tool),
+		fmt.Sprintf("Session: `%s`", item.Provenance.SessionID),
+		fmt.Sprintf("Bundle ID: `%s`", item.IOS.BundleID),
+		fmt.Sprintf("Screen: `%s`", item.IOS.Screen),
+		fmt.Sprintf("Simulator: `%s`", item.IOS.Simulator.Name),
+	}
+	if strings.TrimSpace(item.IOS.Simulator.Runtime) != "" {
+		lines = append(lines, fmt.Sprintf("Runtime: `%s`", item.IOS.Simulator.Runtime))
+	}
+	if strings.TrimSpace(item.IOS.State) != "" {
+		lines = append(lines, fmt.Sprintf("State: `%s`", item.IOS.State))
+	}
+	lines = append(lines, fmt.Sprintf("Issues: launch_errors=%d, crashes=%d, fatal_logs=%d", item.IOS.Issues.LaunchErrors, item.IOS.Issues.Crashes, item.IOS.Issues.FatalLogs))
+	return lines
+}
+
 func curlSummaryLines(item Evidence) []string {
 	if item.Curl == nil {
 		return nil
@@ -998,8 +1054,9 @@ func reportStatus(eval Evaluation) string {
 
 func scenarioComplete(eval ScenarioEvaluation) bool {
 	browserOK := !eval.Scenario.BrowserRequired || eval.BrowserOK
+	iosOK := !eval.Scenario.IOSRequired || eval.IOSOK
 	curlOK := !eval.Scenario.CurlRequired || eval.CurlOK
-	return browserOK && curlOK
+	return browserOK && iosOK && curlOK
 }
 
 func curlModeLabel(run Run) string {
@@ -1018,6 +1075,31 @@ func scenarioTone(eval ScenarioEvaluation) string {
 		return "ok"
 	}
 	return "bad"
+}
+
+func runTargetLabel(run Run) string {
+	switch normalizePlatform(run.Platform) {
+	case PlatformIOS:
+		return "iOS Target"
+	default:
+		return "Browser URL"
+	}
+}
+
+func runTargetValue(run Run) string {
+	switch normalizePlatform(run.Platform) {
+	case PlatformIOS:
+		target := firstNonEmpty(run.IOS.Scheme, run.IOS.BundleID)
+		if strings.TrimSpace(run.IOS.Scheme) != "" && strings.TrimSpace(run.IOS.BundleID) != "" {
+			target = run.IOS.Scheme + " / " + run.IOS.BundleID
+		}
+		if strings.TrimSpace(run.IOS.Simulator) != "" {
+			target = target + " @ " + run.IOS.Simulator
+		}
+		return strings.TrimSpace(target)
+	default:
+		return run.BrowserURL
+	}
 }
 
 func passedScenarioCount(items []scenarioHTMLReport) int {

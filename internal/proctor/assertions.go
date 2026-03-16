@@ -18,6 +18,12 @@ var defaultBlockingBrowserHealthChecks = []string{
 	"http_errors",
 }
 
+var defaultBlockingIOSHealthChecks = []string{
+	"launch_errors",
+	"crashes",
+	"fatal_logs",
+}
+
 type agentBrowserAuditReport struct {
 	Desktop *agentBrowserDevice `json:"desktop"`
 	Mobile  *agentBrowserDevice `json:"mobile"`
@@ -27,6 +33,32 @@ type agentBrowserDevice struct {
 	Title    string                 `json:"title"`
 	FinalURL string                 `json:"finalUrl"`
 	Issues   map[string]interface{} `json:"issues"`
+}
+
+type iosAuditReport struct {
+	Simulator *iosAuditSimulator `json:"simulator"`
+	App       *iosAuditApp       `json:"app"`
+	Issues    *iosAuditIssues    `json:"issues"`
+}
+
+type iosAuditSimulator struct {
+	Name    string `json:"name"`
+	UDID    string `json:"udid"`
+	Runtime string `json:"runtime"`
+}
+
+type iosAuditApp struct {
+	BundleID   string   `json:"bundleId"`
+	Screen     string   `json:"screen"`
+	State      string   `json:"state"`
+	LaunchArgs []string `json:"launchArgs"`
+	AppLaunch  *bool    `json:"appLaunch"`
+}
+
+type iosAuditIssues struct {
+	LaunchErrors int `json:"launchErrors"`
+	Crashes      int `json:"crashes"`
+	FatalLogs    int `json:"fatalLogs"`
 }
 
 func ParseBrowserReport(path string) (BrowserData, error) {
@@ -47,6 +79,46 @@ func ParseBrowserReport(path string) (BrowserData, error) {
 	if report.Mobile != nil {
 		mobile := summarizeBrowserDevice(*report.Mobile)
 		result.Mobile = &mobile
+	}
+	return result, nil
+}
+
+func ParseIOSReport(path string) (IOSData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return IOSData{}, err
+	}
+	var report iosAuditReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return IOSData{}, fmt.Errorf("parse ios report: %w", err)
+	}
+
+	result := IOSData{}
+	if report.Simulator != nil {
+		result.Simulator = IOSSimulatorSummary{
+			Name:    report.Simulator.Name,
+			UDID:    report.Simulator.UDID,
+			Runtime: report.Simulator.Runtime,
+		}
+	}
+	if report.App != nil {
+		result.BundleID = report.App.BundleID
+		result.Screen = report.App.Screen
+		result.State = report.App.State
+		result.LaunchArgs = append([]string(nil), report.App.LaunchArgs...)
+		if report.App.AppLaunch != nil {
+			result.AppLaunch = *report.App.AppLaunch
+		}
+	}
+	if report.Issues != nil {
+		result.Issues = IOSIssueSummary{
+			LaunchErrors: report.Issues.LaunchErrors,
+			Crashes:      report.Issues.Crashes,
+			FatalLogs:    report.Issues.FatalLogs,
+		}
+	}
+	if report.App == nil || report.App.AppLaunch == nil {
+		result.AppLaunch = result.Issues.LaunchErrors == 0
 	}
 	return result, nil
 }
@@ -80,7 +152,7 @@ func issueCount(issues map[string]interface{}, key string) int {
 
 func EvaluateBrowserAssertions(expressions, failingExpressions []string, data BrowserData, artifacts []Artifact) ([]Assertion, error) {
 	var assertions []Assertion
-	covered := coveredBrowserKeys(expressions, failingExpressions)
+	covered := coveredAssertionKeys(expressions, failingExpressions)
 	for _, expression := range normalizedLines(expressions) {
 		assertion, err := evaluateBrowserAssertion(expression, data, artifacts, true)
 		if err != nil {
@@ -101,6 +173,29 @@ func EvaluateBrowserAssertions(expressions, failingExpressions []string, data Br
 	return assertions, nil
 }
 
+func EvaluateIOSAssertions(expressions, failingExpressions []string, data IOSData, artifacts []Artifact) ([]Assertion, error) {
+	var assertions []Assertion
+	covered := coveredAssertionKeys(expressions, failingExpressions)
+	for _, expression := range normalizedLines(expressions) {
+		assertion, err := evaluateIOSAssertion(expression, data, artifacts, true)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, assertion)
+	}
+	for _, expression := range normalizedLines(failingExpressions) {
+		assertion, err := evaluateIOSAssertion(expression, data, artifacts, false)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, assertion)
+	}
+	for _, assertion := range implicitIOSAssertions(covered, data) {
+		assertions = append(assertions, assertion)
+	}
+	return assertions, nil
+}
+
 func evaluateBrowserAssertion(expression string, data BrowserData, artifacts []Artifact, expectPass bool) (Assertion, error) {
 	left, operator, right, err := splitAssertion(expression)
 	if err != nil {
@@ -114,19 +209,7 @@ func evaluateBrowserAssertion(expression string, data BrowserData, artifacts []A
 	if err != nil {
 		return Assertion{}, err
 	}
-	if !expectPass {
-		passed = !passed
-	}
-	result := AssertionFail
-	if passed {
-		result = AssertionPass
-	}
-	return Assertion{
-		Description: expression,
-		Expected:    expectedText,
-		Actual:      actualText,
-		Result:      result,
-	}, nil
+	return finalizeAssertion(expression, expectedText, actualText, passed, expectPass), nil
 }
 
 func lookupBrowserValue(key string, data BrowserData, artifacts []Artifact) (interface{}, bool) {
@@ -175,6 +258,52 @@ func lookupBrowserValue(key string, data BrowserData, artifacts []Artifact) (int
 	return nil, false
 }
 
+func evaluateIOSAssertion(expression string, data IOSData, artifacts []Artifact, expectPass bool) (Assertion, error) {
+	left, operator, right, err := splitAssertion(expression)
+	if err != nil {
+		return Assertion{}, err
+	}
+	actual, ok := lookupIOSValue(left, data, artifacts)
+	if !ok {
+		return Assertion{}, fmt.Errorf("unsupported ios assertion: %s", expression)
+	}
+	passed, actualText, expectedText, err := compareAssertion(actual, operator, right)
+	if err != nil {
+		return Assertion{}, err
+	}
+	return finalizeAssertion(expression, expectedText, actualText, passed, expectPass), nil
+}
+
+func lookupIOSValue(key string, data IOSData, artifacts []Artifact) (interface{}, bool) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	switch key {
+	case "bundle_id":
+		return data.BundleID, true
+	case "screen":
+		return data.Screen, true
+	case "state":
+		return data.State, true
+	case "app_launch":
+		return data.AppLaunch, true
+	case "simulator", "simulator_name":
+		return data.Simulator.Name, true
+	case "runtime":
+		return data.Simulator.Runtime, true
+	case "launch_args":
+		return strings.Join(data.LaunchArgs, " "), true
+	case "launch_errors":
+		return data.Issues.LaunchErrors, true
+	case "crashes":
+		return data.Issues.Crashes, true
+	case "fatal_logs":
+		return data.Issues.FatalLogs, true
+	case "screenshot":
+		return hasAnyScreenshot(artifacts), true
+	default:
+		return nil, false
+	}
+}
+
 func EvaluateCurlAssertions(expressions, failingExpressions []string, data CurlData) ([]Assertion, error) {
 	var assertions []Assertion
 	for _, expression := range normalizedLines(expressions) {
@@ -207,19 +336,33 @@ func evaluateCurlAssertion(expression string, data CurlData, expectPass bool) (A
 	if err != nil {
 		return Assertion{}, err
 	}
+	return finalizeAssertion(expression, expectedText, actualText, passed, expectPass), nil
+}
+
+func finalizeAssertion(expression, expectedText, actualText string, rawPassed, expectPass bool) Assertion {
+	description := expression
+	message := ""
+	passed := rawPassed
 	if !expectPass {
-		passed = !passed
+		description = fmt.Sprintf("NOT (%s)", expression)
+		if rawPassed {
+			passed = false
+			message = "expected this assertion to fail, but it passed"
+		} else {
+			passed = true
+		}
 	}
 	result := AssertionFail
 	if passed {
 		result = AssertionPass
 	}
 	return Assertion{
-		Description: expression,
+		Description: description,
 		Expected:    expectedText,
 		Actual:      actualText,
 		Result:      result,
-	}, nil
+		Message:     message,
+	}
 }
 
 func lookupCurlValue(key string, data CurlData) (interface{}, bool) {
@@ -284,7 +427,16 @@ func hasScreenshotLabel(artifacts []Artifact, label string) bool {
 	return false
 }
 
-func coveredBrowserKeys(expressions, failingExpressions []string) map[string]bool {
+func hasAnyScreenshot(artifacts []Artifact) bool {
+	for _, artifact := range artifacts {
+		if artifact.Kind == ArtifactImage {
+			return true
+		}
+	}
+	return false
+}
+
+func coveredAssertionKeys(expressions, failingExpressions []string) map[string]bool {
 	covered := map[string]bool{}
 	for _, group := range [][]string{expressions, failingExpressions} {
 		for _, expression := range normalizedLines(group) {
@@ -336,6 +488,34 @@ func implicitBrowserAssertions(covered map[string]bool, data BrowserData) []Asse
 	appendDevice("")
 	if data.Mobile != nil {
 		appendDevice("mobile")
+	}
+	return assertions
+}
+
+func implicitIOSAssertions(covered map[string]bool, data IOSData) []Assertion {
+	var assertions []Assertion
+	for _, metric := range defaultBlockingIOSHealthChecks {
+		if covered[metric] {
+			continue
+		}
+		value, ok := lookupIOSValue(metric, data, nil)
+		if !ok {
+			continue
+		}
+		actualValue, _ := value.(int)
+		result := AssertionPass
+		message := ""
+		if actualValue != 0 {
+			result = AssertionFail
+			message = "implicit zero-issues policy failed"
+		}
+		assertions = append(assertions, Assertion{
+			Description: metric + " = 0",
+			Expected:    "0",
+			Actual:      strconv.Itoa(actualValue),
+			Result:      result,
+			Message:     message,
+		})
 	}
 	return assertions
 }

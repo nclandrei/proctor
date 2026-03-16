@@ -1,9 +1,16 @@
 package proctor
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
+	PlatformWeb = "web"
+	PlatformIOS = "ios"
+
 	SurfaceBrowser = "browser"
+	SurfaceIOS     = "ios"
 	SurfaceCurl    = "curl"
 
 	CurlModeRequired = "required"
@@ -26,7 +33,7 @@ const (
 	EdgeCategoryScenar = "scenario"
 )
 
-var EdgeCaseCategories = []string{
+var WebEdgeCaseCategories = []string{
 	"validation and malformed input",
 	"empty or missing input",
 	"retry or double-submit",
@@ -39,13 +46,39 @@ var EdgeCaseCategories = []string{
 	"any feature-specific risks",
 }
 
+var IOSEdgeCaseCategories = []string{
+	"validation and malformed input",
+	"empty or missing input",
+	"retry or double-submit",
+	"loading, latency, and race conditions",
+	"network or server failure",
+	"auth and session state",
+	"app lifecycle, relaunch, and state persistence",
+	"device traits, orientation, and layout",
+	"accessibility, dynamic type, and keyboard behavior",
+	"any feature-specific risks",
+}
+
+var EdgeCaseCategories = append([]string(nil), WebEdgeCaseCategories...)
+
+func EdgeCaseCategoriesForPlatform(platform string) []string {
+	switch normalizePlatform(platform) {
+	case PlatformIOS:
+		return append([]string(nil), IOSEdgeCaseCategories...)
+	default:
+		return append([]string(nil), WebEdgeCaseCategories...)
+	}
+}
+
 type Run struct {
 	ID                 string             `json:"id"`
 	RepoSlug           string             `json:"repo_slug"`
 	RepoRoot           string             `json:"repo_root"`
+	Platform           string             `json:"platform"`
 	Feature            string             `json:"feature"`
 	BrowserURL         string             `json:"browser_url"`
 	CurlMode           string             `json:"curl_mode,omitempty"`
+	IOS                IOSTarget          `json:"ios,omitempty"`
 	CurlRequired       bool               `json:"curl_required"`
 	CurlEndpoints      []string           `json:"curl_endpoints,omitempty"`
 	CurlSkipReason     string             `json:"curl_skip_reason,omitempty"`
@@ -64,6 +97,7 @@ type Scenario struct {
 	Kind            string   `json:"kind"`
 	Category        string   `json:"category,omitempty"`
 	BrowserRequired bool     `json:"browser_required"`
+	IOSRequired     bool     `json:"ios_required,omitempty"`
 	CurlRequired    bool     `json:"curl_required"`
 	CurlEndpoints   []string `json:"curl_endpoints,omitempty"`
 }
@@ -87,6 +121,7 @@ type Evidence struct {
 	Assertions []Assertion  `json:"assertions"`
 	Artifacts  []Artifact   `json:"artifacts"`
 	Browser    *BrowserData `json:"browser,omitempty"`
+	IOS        *IOSData     `json:"ios,omitempty"`
 	Curl       *CurlData    `json:"curl,omitempty"`
 }
 
@@ -116,6 +151,12 @@ type Artifact struct {
 	MediaType string `json:"media_type,omitempty"`
 }
 
+type IOSTarget struct {
+	Scheme    string `json:"scheme,omitempty"`
+	BundleID  string `json:"bundle_id,omitempty"`
+	Simulator string `json:"simulator,omitempty"`
+}
+
 type BrowserData struct {
 	URL       string                `json:"url"`
 	SessionID string                `json:"session_id"`
@@ -134,6 +175,28 @@ type BrowserDeviceSummary struct {
 	HTTPErrors      int    `json:"http_errors"`
 }
 
+type IOSData struct {
+	BundleID   string              `json:"bundle_id"`
+	Screen     string              `json:"screen"`
+	State      string              `json:"state,omitempty"`
+	AppLaunch  bool                `json:"app_launch"`
+	LaunchArgs []string            `json:"launch_args,omitempty"`
+	Simulator  IOSSimulatorSummary `json:"simulator"`
+	Issues     IOSIssueSummary     `json:"issues"`
+}
+
+type IOSSimulatorSummary struct {
+	Name    string `json:"name"`
+	UDID    string `json:"udid,omitempty"`
+	Runtime string `json:"runtime,omitempty"`
+}
+
+type IOSIssueSummary struct {
+	LaunchErrors int `json:"launch_errors"`
+	Crashes      int `json:"crashes"`
+	FatalLogs    int `json:"fatal_logs"`
+}
+
 type CurlData struct {
 	Command        []string          `json:"command"`
 	ExitCode       int               `json:"exit_code"`
@@ -143,8 +206,12 @@ type CurlData struct {
 }
 
 type StartOptions struct {
+	Platform       string
 	Feature        string
 	BrowserURL     string
+	IOSScheme      string
+	IOSBundleID    string
+	IOSSimulator   string
 	CurlMode       string
 	CurlEndpoints  []string
 	CurlSkipReason string
@@ -154,6 +221,16 @@ type StartOptions struct {
 }
 
 type BrowserRecordOptions struct {
+	ScenarioID     string
+	SessionID      string
+	Tool           string
+	Screenshots    map[string]string
+	ReportPath     string
+	PassAssertions []string
+	FailAssertions []string
+}
+
+type IOSRecordOptions struct {
 	ScenarioID     string
 	SessionID      string
 	Tool           string
@@ -179,7 +256,20 @@ type Evaluation struct {
 type ScenarioEvaluation struct {
 	Scenario      Scenario
 	BrowserOK     bool
+	IOSOK         bool
 	CurlOK        bool
 	BrowserIssues []string
+	IOSIssues     []string
 	CurlIssues    []string
+}
+
+func normalizePlatform(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "", PlatformWeb:
+		return PlatformWeb
+	case PlatformIOS:
+		return PlatformIOS
+	default:
+		return strings.ToLower(strings.TrimSpace(platform))
+	}
 }

@@ -63,6 +63,7 @@ For user-visible web work, start here:
 
 ```bash
 proctor start \
+  --platform web \
   --feature "new authentication flow" \
   --url http://127.0.0.1:3000/login \
   --curl scenario \
@@ -89,6 +90,7 @@ If the flow is mostly client-side and there is no meaningful backend or protocol
 
 ```bash
 proctor start \
+  --platform web \
   --feature "What Did I Just Watch finder" \
   --url http://127.0.0.1:4174/kimarite \
   --curl skip \
@@ -105,6 +107,31 @@ proctor start \
   --edge-case "mobile or responsive behavior=Filtered finder state remains readable and usable on mobile." \
   --edge-case "accessibility and keyboard behavior=N/A: this pass is visual only" \
   --edge-case "any feature-specific risks=N/A: reset behavior is covered by the main failure path"
+```
+
+For iOS work, create an iOS contract instead:
+
+```bash
+proctor start \
+  --platform ios \
+  --feature "reader library relaunch" \
+  --ios-scheme Pagena \
+  --ios-bundle-id com.example.pagena \
+  --ios-simulator "iPhone 16 Pro" \
+  --curl skip \
+  --curl-skip-reason "UI-only iOS verification for this pass." \
+  --happy-path "Launching the app lands on the library screen." \
+  --failure-path "Missing content shows a visible recovery state instead of a blank screen." \
+  --edge-case "validation and malformed input=N/A: no freeform input in this flow" \
+  --edge-case "empty or missing input=N/A: no required input in this flow" \
+  --edge-case "retry or double-submit=N/A: no repeated mutation in this flow" \
+  --edge-case "loading, latency, and race conditions=Loading placeholder settles once without duplicate content." \
+  --edge-case "network or server failure=Offline launch shows a recoverable empty state." \
+  --edge-case "auth and session state=N/A: anonymous browsing only" \
+  --edge-case "app lifecycle, relaunch, and state persistence=Foregrounding the app keeps the same selected title." \
+  --edge-case "device traits, orientation, and layout=Library remains readable on the target simulator." \
+  --edge-case "accessibility, dynamic type, and keyboard behavior=N/A: this pass is visual only" \
+  --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 ```
 
 ### 2. Capture Real Browser Evidence
@@ -169,7 +196,48 @@ proctor record browser \
 
 You can reuse one browser report for multiple scenarios if it genuinely proves each one.
 
-### 4. Attach HTTP Evidence When Required
+### 4. Capture And Attach Real iOS Evidence
+
+Proctor does not boot the simulator for you. Use your own simulator tooling to
+build, launch, screenshot, and inspect logs. Proctor only needs a screenshot
+plus a small `ios-report.json` file:
+
+```json
+{
+  "simulator": {
+    "name": "iPhone 16 Pro",
+    "runtime": "iOS 18.2"
+  },
+  "app": {
+    "bundleId": "com.example.pagena",
+    "screen": "Library",
+    "state": "foreground"
+  },
+  "issues": {
+    "launchErrors": 0,
+    "crashes": 0,
+    "fatalLogs": 0
+  }
+}
+```
+
+Then record that evidence against the scenario:
+
+```bash
+proctor record ios \
+  --scenario happy-path \
+  --session pagena-library-1 \
+  --report /abs/path/ios-report.json \
+  --screenshot library=/abs/path/library.png \
+  --assert 'screen contains Library' \
+  --assert 'bundle_id = com.example.pagena' \
+  --assert 'app_launch = true'
+```
+
+One simulator report can be reused for multiple scenarios if it genuinely
+proves each one.
+
+### 5. Attach HTTP Evidence When Required
 
 When a scenario requires `curl`, wrap the real command:
 
@@ -185,7 +253,7 @@ proctor record curl \
     -d '{"email":"demo@example.com","password":"wrong"}'
 ```
 
-### 5. Check Coverage And Finish
+### 6. Check Coverage And Finish
 
 ```bash
 proctor status
@@ -212,6 +280,16 @@ not have to come from one specific browser helper.
 For web runs, mobile proof is mandatory. Even when the primary scenario is
 desktop-first, `proctor done` still requires at least one desktop screenshot and
 at least one mobile screenshot somewhere in the recorded browser evidence.
+
+For iOS evidence, Proctor expects:
+
+- a simulator session id string
+- at least one simulator screenshot across the run
+- an `ios-report.json` artifact
+- at least one passing assertion
+
+The iOS report can be synthesized from real simulator-session output. It does
+not have to come from one specific helper.
 
 For curl evidence, Proctor expects:
 
@@ -248,6 +326,28 @@ Console warnings are deliberately excluded from that default gate. Proctor still
 records `consoleWarnings` in the report so you can inspect them later or make
 them blocking with an explicit assertion such as `console_warnings = 0`.
 
+## iOS Assertions
+
+Examples:
+
+- `screen contains Library`
+- `bundle_id = com.example.pagena`
+- `simulator contains iPhone 16 Pro`
+- `runtime contains iOS`
+- `state = foreground`
+- `app_launch = true`
+- `launch_errors = 0`
+- `crashes = 0`
+- `fatal_logs = 0`
+- `screenshot = true`
+
+If you do not explicitly assert iOS health counts, Proctor adds implicit
+zero-issue assertions for:
+
+- launch errors
+- crashes
+- fatal logs
+
 ## Edge Cases Are First-Class
 
 Proctor does not accept "give me two edge cases".
@@ -259,6 +359,7 @@ Each category must be covered either by:
 
 Current categories:
 
+Web:
 - validation and malformed input
 - empty or missing input
 - retry or double-submit
@@ -268,6 +369,18 @@ Current categories:
 - refresh, back-navigation, and state persistence
 - mobile or responsive behavior
 - accessibility and keyboard behavior
+- any feature-specific risks
+
+iOS:
+- validation and malformed input
+- empty or missing input
+- retry or double-submit
+- loading, latency, and race conditions
+- network or server failure
+- auth and session state
+- app lifecycle, relaunch, and state persistence
+- device traits, orientation, and layout
+- accessibility, dynamic type, and keyboard behavior
 - any feature-specific risks
 
 ## Commands
@@ -280,6 +393,8 @@ Current categories:
   Shows what still passes or fails.
 - `proctor record browser`
   Attaches browser evidence to one scenario.
+- `proctor record ios`
+  Attaches iOS simulator evidence to one scenario.
 - `proctor record curl`
   Wraps and records one real HTTP command for one scenario.
 - `proctor done`
@@ -292,6 +407,7 @@ Use subcommand help for exact flags:
 ```bash
 proctor start --help
 proctor record browser --help
+proctor record ios --help
 proctor record curl --help
 proctor done --help
 ```
@@ -318,12 +434,12 @@ Important files:
 
 ## Current Scope
 
-The current implementation is strongest for web:
+Current supported surfaces:
 
-- browser evidence is fully enforced
+- web browser evidence with desktop and mobile proof
+- iOS simulator evidence with screenshots plus simulator/app report metadata
+- risk-based `curl` evidence when backend or protocol verification matters
 - `curl` risk is modeled per scenario, with scenario-level endpoint lists and scenario-level completion gates
-
-iOS and CLI are part of the design, but not yet implemented in the same depth.
 
 ## Development
 
