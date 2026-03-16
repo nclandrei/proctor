@@ -67,6 +67,59 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 	}
 }
 
+func TestReportEmbedsScreenshotPreviews(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+			"mobile-success":  mobileShot,
+		},
+		PassAssertions: []string{
+			"console_errors = 0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reportHTML, err := os.ReadFile(filepath.Join(store.RunDir(run), "report.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(reportHTML)
+	if !strings.Contains(text, "data:image/png;base64,") {
+		t.Fatalf("expected report html to embed screenshot previews, got:\n%s", text)
+	}
+	if !strings.Contains(text, "Embedded preview. Click to enlarge.") {
+		t.Fatalf("expected report html to include the compact preview affordance, got:\n%s", text)
+	}
+	if !strings.Contains(text, `class="lightbox"`) {
+		t.Fatalf("expected report html to include inline enlarge markup, got:\n%s", text)
+	}
+	if strings.Contains(text, `<img src="artifacts/`) {
+		t.Fatalf("expected report html image tags to use embedded data urls, got:\n%s", text)
+	}
+}
+
 func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)

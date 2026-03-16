@@ -314,7 +314,7 @@ Important files:
 
 `contract.md` and `report.html` are derived from the recorded evidence. They are human-facing outputs, not the source of truth.
 
-`report.html` is always rendered in dark mode.
+`report.html` is always rendered in dark mode, keeps its styles and screenshot previews self-contained, and lets readers enlarge embedded evidence inline.
 
 ## Current Scope
 

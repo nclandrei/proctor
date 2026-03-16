@@ -346,7 +346,7 @@ func writeReports(store *Store, run Run) error {
 	if err != nil {
 		return err
 	}
-	markdown, html, err := RenderReports(run, eval, evidence)
+	markdown, html, err := RenderReports(run, store.RunDir(run), eval, evidence)
 	if err != nil {
 		return err
 	}

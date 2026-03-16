@@ -1,8 +1,12 @@
 package proctor
 
 import (
+	"encoding/base64"
 	"fmt"
 	"html/template"
+	"mime"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -12,8 +16,29 @@ type scenarioReport struct {
 	Evidence []Evidence
 }
 
-func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, string, error) {
+type scenarioHTMLReport struct {
+	Eval     ScenarioEvaluation
+	Evidence []evidenceHTMLReport
+}
+
+type evidenceHTMLReport struct {
+	Surface    string
+	Summary    []string
+	Assertions []Assertion
+	Artifacts  []artifactHTMLReport
+}
+
+type artifactHTMLReport struct {
+	Label        string
+	Path         string
+	Kind         string
+	InlineSource template.URL
+	ModalID      string
+}
+
+func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence) (string, string, error) {
 	scenarios := groupEvidenceByScenario(eval, evidence)
+	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios)
 	edgeCoverage := edgeCoverageRows(run)
 	curlRequirements := curlRequirementRows(run)
 
@@ -110,7 +135,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 	type reportData struct {
 		Run          Run
 		Eval         Evaluation
-		Scenarios    []scenarioReport
+		Scenarios    []scenarioHTMLReport
 		EdgeCoverage []edgeCoverageRow
 		CurlCoverage []curlRequirementRow
 	}
@@ -204,6 +229,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       letter-spacing: -0.02em;
       margin: 0;
     }
+    figure { margin: 0; }
     h1 { font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; margin-bottom: 10px; }
     h2 { font-size: 1.35rem; margin-bottom: 14px; }
     h3 { font-size: 1.05rem; margin-bottom: 6px; }
@@ -371,14 +397,113 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       border-radius: 18px;
       padding: 12px;
       background: rgba(8, 16, 23, 0.62);
+      display: grid;
+      gap: 12px;
+      align-content: start;
     }
-    img {
+    .artifact-card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .artifact-title {
+      font-weight: 600;
+      word-break: break-word;
+    }
+    .artifact-link {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .artifact-link:hover { color: var(--accent); }
+    .artifact-preview {
+      display: block;
+      color: inherit;
+      text-decoration: none;
+      cursor: zoom-in;
+    }
+    .artifact-frame {
+      min-height: 180px;
+      max-height: 220px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(2, 6, 23, 0.9);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .artifact-preview img,
+    .lightbox-image {
       width: 100%;
       display: block;
-      margin-top: 10px;
       border: 1px solid var(--line);
-      border-radius: 12px;
       background: rgba(2, 6, 23, 0.9);
+    }
+    .artifact-preview img {
+      height: 100%;
+      max-height: 198px;
+      object-fit: contain;
+      object-position: top center;
+      border-radius: 10px;
+    }
+    .artifact-preview-note,
+    .artifact-note {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      display: none;
+      padding: 16px;
+      z-index: 999;
+    }
+    .lightbox:target {
+      display: grid;
+      place-items: center;
+    }
+    .lightbox-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.84);
+      backdrop-filter: blur(10px);
+    }
+    .lightbox-panel {
+      position: relative;
+      z-index: 1;
+      width: min(1100px, calc(100vw - 32px));
+      max-height: calc(100vh - 32px);
+      overflow: auto;
+      margin: 0;
+      padding: 18px;
+      border: 1px solid rgba(125, 211, 252, 0.18);
+      border-radius: 24px;
+      background: rgba(8, 16, 23, 0.96);
+      box-shadow: var(--shadow);
+    }
+    .lightbox-panel figcaption { font-weight: 600; }
+    .lightbox-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .lightbox-close {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 12px;
+      border-radius: 999px;
+      color: var(--ink);
+      background: rgba(148, 163, 184, 0.14);
+      text-decoration: none;
+    }
+    .lightbox-image {
+      height: auto;
+      border-radius: 18px;
     }
     .assertion-list li {
       margin-bottom: 10px;
@@ -533,10 +658,9 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
             {{ range .Evidence }}
             <section class="evidence-block">
               <h4>{{ title .Surface }} evidence</h4>
-              {{ $summary := evidenceSummaryLines . }}
-              {{ if $summary }}
+              {{ if .Summary }}
               <ul class="summary-list">
-                {{ range $summary }}
+                {{ range .Summary }}
                 <li>{{ . }}</li>
                 {{ end }}
               </ul>
@@ -555,8 +679,30 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
               <div class="artifacts">
                 {{ range .Artifacts }}
                 <article class="artifact-card">
-                  <div><a href="{{ .Path }}">{{ .Label }}</a></div>
-                  {{ if eq .Kind "image" }}<img src="{{ .Path }}" alt="{{ .Label }}">{{ end }}
+                  <div class="artifact-card-head">
+                    <div class="artifact-title">{{ .Label }}</div>
+                    <a class="artifact-link" href="{{ .Path }}">artifact</a>
+                  </div>
+                  {{ if .InlineSource }}
+                  <a class="artifact-preview" href="#{{ .ModalID }}">
+                    <div class="artifact-frame">
+                      <img src="{{ .InlineSource }}" alt="{{ .Label }}">
+                    </div>
+                    <div class="artifact-preview-note">Embedded preview. Click to enlarge.</div>
+                  </a>
+                  <div class="lightbox" id="{{ .ModalID }}">
+                    <a class="lightbox-backdrop" href="#" aria-label="Close enlarged preview"></a>
+                    <figure class="lightbox-panel">
+                      <div class="lightbox-top">
+                        <figcaption>{{ .Label }}</figcaption>
+                        <a class="lightbox-close" href="#">Close</a>
+                      </div>
+                      <img class="lightbox-image" src="{{ .InlineSource }}" alt="{{ .Label }}">
+                    </figure>
+                  </div>
+                  {{ else }}
+                  <div class="artifact-note">Linked artifact</div>
+                  {{ end }}
                 </article>
                 {{ end }}
               </div>
@@ -587,7 +733,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 	if err := tmpl.Execute(&html, reportData{
 		Run:          run,
 		Eval:         eval,
-		Scenarios:    scenarios,
+		Scenarios:    htmlScenarios,
 		EdgeCoverage: edgeCoverage,
 		CurlCoverage: curlRequirements,
 	}); err != nil {
@@ -675,6 +821,53 @@ func curlRequirementRows(run Run) []curlRequirementRow {
 	return rows
 }
 
+func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport) []scenarioHTMLReport {
+	reports := make([]scenarioHTMLReport, 0, len(scenarios))
+	for scenarioIdx, scenario := range scenarios {
+		htmlScenario := scenarioHTMLReport{Eval: scenario.Eval}
+		for evidenceIdx, item := range scenario.Evidence {
+			htmlEvidence := evidenceHTMLReport{
+				Surface:    item.Surface,
+				Summary:    evidenceSummaryLines(item),
+				Assertions: append([]Assertion(nil), item.Assertions...),
+			}
+			for artifactIdx, artifact := range item.Artifacts {
+				htmlEvidence.Artifacts = append(htmlEvidence.Artifacts, artifactHTMLReport{
+					Label:        artifact.Label,
+					Path:         artifact.Path,
+					Kind:         artifact.Kind,
+					InlineSource: inlineArtifactDataURI(runDir, artifact),
+					ModalID:      fmt.Sprintf("artifact-preview-%d-%d-%d", scenarioIdx, evidenceIdx, artifactIdx),
+				})
+			}
+			htmlScenario.Evidence = append(htmlScenario.Evidence, htmlEvidence)
+		}
+		reports = append(reports, htmlScenario)
+	}
+	return reports
+}
+
+func inlineArtifactDataURI(runDir string, artifact Artifact) template.URL {
+	if artifact.Kind != ArtifactImage {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(runDir, artifact.Path))
+	if err != nil {
+		return ""
+	}
+	return template.URL("data:" + artifactMediaType(artifact) + ";base64," + base64.StdEncoding.EncodeToString(data))
+}
+
+func artifactMediaType(artifact Artifact) string {
+	if strings.TrimSpace(artifact.MediaType) != "" {
+		return artifact.MediaType
+	}
+	if mediaType := mime.TypeByExtension(strings.ToLower(filepath.Ext(artifact.Path))); mediaType != "" {
+		return mediaType
+	}
+	return "application/octet-stream"
+}
+
 func evidenceSummaryLines(item Evidence) []string {
 	switch item.Surface {
 	case SurfaceBrowser:
@@ -750,7 +943,7 @@ func scenarioTone(eval ScenarioEvaluation) string {
 	return "bad"
 }
 
-func passedScenarioCount(items []scenarioReport) int {
+func passedScenarioCount(items []scenarioHTMLReport) int {
 	count := 0
 	for _, item := range items {
 		if scenarioComplete(item.Eval) {
@@ -760,7 +953,7 @@ func passedScenarioCount(items []scenarioReport) int {
 	return count
 }
 
-func failedScenarioCount(items []scenarioReport) int {
+func failedScenarioCount(items []scenarioHTMLReport) int {
 	count := 0
 	for _, item := range items {
 		if !scenarioComplete(item.Eval) {
