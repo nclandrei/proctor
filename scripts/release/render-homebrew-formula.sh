@@ -19,23 +19,18 @@ cat >"$output_path" <<EOF
 class Proctor < Formula
   desc "Manual verification contract CLI for coding agents"
   homepage "https://github.com/nclandrei/proctor"
-  version "${version}"
 
-  if OS.mac?
-    if Hardware::CPU.arm?
-      url "https://github.com/nclandrei/proctor/releases/download/v${version}/proctor-aarch64-apple-darwin.tar.gz"
-      sha256 "${darwin_arm64_sha}"
-    end
-    if Hardware::CPU.intel?
-      url "https://github.com/nclandrei/proctor/releases/download/v${version}/proctor-x86_64-apple-darwin.tar.gz"
-      sha256 "${darwin_amd64_sha}"
-    end
+  if OS.mac? && Hardware::CPU.arm?
+    url "https://github.com/nclandrei/proctor/releases/download/v${version}/proctor-aarch64-apple-darwin.tar.gz"
+    sha256 "${darwin_arm64_sha}"
   end
-  if OS.linux?
-    if Hardware::CPU.intel?
-      url "https://github.com/nclandrei/proctor/releases/download/v${version}/proctor-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "${linux_amd64_sha}"
-    end
+  if OS.mac? && Hardware::CPU.intel?
+    url "https://github.com/nclandrei/proctor/releases/download/v${version}/proctor-x86_64-apple-darwin.tar.gz"
+    sha256 "${darwin_amd64_sha}"
+  end
+  if OS.linux? && Hardware::CPU.intel?
+    url "https://github.com/nclandrei/proctor/releases/download/v${version}/proctor-x86_64-unknown-linux-gnu.tar.gz"
+    sha256 "${linux_amd64_sha}"
   end
 
   def install
