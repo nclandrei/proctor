@@ -120,6 +120,55 @@ func TestReportEmbedsScreenshotPreviews(t *testing.T) {
 	}
 }
 
+func TestReportEmbedsTranscriptAsCollapsedLog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RecordCurl(store, run, CurlRecordOptions{
+		ScenarioID: "happy-path",
+		Command: []string{
+			"sh",
+			"-c",
+			`printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n<status> ready & waiting\nsecond line\n'`,
+		},
+		PassAssertions: []string{
+			"status = 200",
+			"body contains ready",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reportHTML, err := os.ReadFile(filepath.Join(store.RunDir(run), "report.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(reportHTML)
+	if !strings.Contains(text, `class="artifact-details"`) {
+		t.Fatalf("expected report html to include collapsible transcript markup, got:\n%s", text)
+	}
+	if !strings.Contains(text, "Embedded log transcript. Expand to inspect.") {
+		t.Fatalf("expected report html to describe the inline transcript, got:\n%s", text)
+	}
+	if !strings.Contains(text, `class="artifact-log"`) {
+		t.Fatalf("expected report html to include the embedded transcript body, got:\n%s", text)
+	}
+	if !strings.Contains(text, "&lt;status&gt; ready &amp; waiting") {
+		t.Fatalf("expected embedded transcript content to be HTML-escaped, got:\n%s", text)
+	}
+}
+
 func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)

@@ -29,11 +29,14 @@ type evidenceHTMLReport struct {
 }
 
 type artifactHTMLReport struct {
-	Label        string
-	Path         string
-	Kind         string
-	InlineSource template.URL
-	ModalID      string
+	Label               string
+	Path                string
+	Kind                string
+	InlineSource        template.URL
+	InlineText          string
+	HasInlineText       bool
+	InlineTextLineCount int
+	ModalID             string
 }
 
 func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence) (string, string, error) {
@@ -401,6 +404,9 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
       gap: 12px;
       align-content: start;
     }
+    .artifact-card.transcript-card {
+      grid-column: 1 / -1;
+    }
     .artifact-card-head {
       display: flex;
       justify-content: space-between;
@@ -453,6 +459,42 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
     .artifact-note {
       color: var(--muted);
       font-size: 0.88rem;
+    }
+    .artifact-details {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(2, 6, 23, 0.9);
+      overflow: hidden;
+    }
+    .artifact-summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .artifact-summary-meta {
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .artifact-log {
+      margin: 0;
+      padding: 14px;
+      border-top: 1px solid var(--line);
+      max-height: 320px;
+      overflow: auto;
+      background: rgba(2, 6, 23, 0.94);
+      color: var(--ink);
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .lightbox {
       position: fixed;
@@ -678,7 +720,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
               </ul>
               <div class="artifacts">
                 {{ range .Artifacts }}
-                <article class="artifact-card">
+                <article class="artifact-card{{ if .HasInlineText }} transcript-card{{ end }}">
                   <div class="artifact-card-head">
                     <div class="artifact-title">{{ .Label }}</div>
                     <a class="artifact-link" href="{{ .Path }}">artifact</a>
@@ -700,6 +742,14 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
                       <img class="lightbox-image" src="{{ .InlineSource }}" alt="{{ .Label }}">
                     </figure>
                   </div>
+                  {{ else if .HasInlineText }}
+                  <details class="artifact-details">
+                    <summary class="artifact-summary">
+                      <span>Embedded log transcript. Expand to inspect.</span>
+                      <span class="artifact-summary-meta">{{ if gt .InlineTextLineCount 0 }}{{ .InlineTextLineCount }} line(s){{ else }}empty{{ end }}</span>
+                    </summary>
+                    <pre class="artifact-log">{{ .InlineText }}</pre>
+                  </details>
                   {{ else }}
                   <div class="artifact-note">Linked artifact</div>
                   {{ end }}
@@ -832,12 +882,16 @@ func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport) []scena
 				Assertions: append([]Assertion(nil), item.Assertions...),
 			}
 			for artifactIdx, artifact := range item.Artifacts {
+				inlineText, inlineTextLineCount, hasInlineText := inlineArtifactText(runDir, artifact)
 				htmlEvidence.Artifacts = append(htmlEvidence.Artifacts, artifactHTMLReport{
-					Label:        artifact.Label,
-					Path:         artifact.Path,
-					Kind:         artifact.Kind,
-					InlineSource: inlineArtifactDataURI(runDir, artifact),
-					ModalID:      fmt.Sprintf("artifact-preview-%d-%d-%d", scenarioIdx, evidenceIdx, artifactIdx),
+					Label:               artifact.Label,
+					Path:                artifact.Path,
+					Kind:                artifact.Kind,
+					InlineSource:        inlineArtifactDataURI(runDir, artifact),
+					InlineText:          inlineText,
+					HasInlineText:       hasInlineText,
+					InlineTextLineCount: inlineTextLineCount,
+					ModalID:             fmt.Sprintf("artifact-preview-%d-%d-%d", scenarioIdx, evidenceIdx, artifactIdx),
 				})
 			}
 			htmlScenario.Evidence = append(htmlScenario.Evidence, htmlEvidence)
@@ -858,6 +912,18 @@ func inlineArtifactDataURI(runDir string, artifact Artifact) template.URL {
 	return template.URL("data:" + artifactMediaType(artifact) + ";base64," + base64.StdEncoding.EncodeToString(data))
 }
 
+func inlineArtifactText(runDir string, artifact Artifact) (string, int, bool) {
+	if artifact.Kind != ArtifactTranscript {
+		return "", 0, false
+	}
+	data, err := os.ReadFile(filepath.Join(runDir, artifact.Path))
+	if err != nil {
+		return "", 0, false
+	}
+	text := string(data)
+	return text, textLineCount(text), true
+}
+
 func artifactMediaType(artifact Artifact) string {
 	if strings.TrimSpace(artifact.MediaType) != "" {
 		return artifact.MediaType
@@ -866,6 +932,17 @@ func artifactMediaType(artifact Artifact) string {
 		return mediaType
 	}
 	return "application/octet-stream"
+}
+
+func textLineCount(value string) int {
+	if value == "" {
+		return 0
+	}
+	count := strings.Count(value, "\n")
+	if strings.HasSuffix(value, "\n") {
+		return count
+	}
+	return count + 1
 }
 
 func evidenceSummaryLines(item Evidence) []string {
