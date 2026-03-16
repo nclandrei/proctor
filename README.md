@@ -19,6 +19,12 @@ brew tap nclandrei/tap
 brew install nclandrei/tap/proctor
 ```
 
+Tagged GitHub releases publish prebuilt Homebrew archives from
+`nclandrei/proctor` and refresh `nclandrei/homebrew-tap/Formula/proctor.rb`
+automatically.
+The release workflow expects a `HOMEBREW_TAP_TOKEN` GitHub secret with push
+access to `nclandrei/homebrew-tap`.
+
 ## Who This Is For
 
 Proctor is agent-agnostic. It is meant to work from:

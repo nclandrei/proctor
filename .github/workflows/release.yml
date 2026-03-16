@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_VERSION: ${{ github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t gofiles < <(find . -type f -name '*.go' -not -path './.git/*' | sort)
+          if [ "${#gofiles[@]}" -eq 0 ]; then
+            exit 0
+          fi
+
+          unformatted="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "${unformatted}" ]; then
+            echo "::error::The following Go files are not gofmt-formatted:"
+            printf '%s\n' "${unformatted}"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          build_target() {
+            local goos="$1"
+            local goarch="$2"
+            local triple="$3"
+            local staging="dist/${triple}"
+            local archive="dist/proctor-${triple}.tar.gz"
+
+            rm -rf "${staging}"
+            mkdir -p "${staging}"
+
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags='-s -w' -o "${staging}/proctor" .
+
+            tar -C "${staging}" -czf "${archive}" proctor
+            sha256sum "${archive}" | awk '{print $1}' > "${archive}.sha256"
+            rm -rf "${staging}"
+          }
+
+          build_target darwin arm64 aarch64-apple-darwin
+          build_target darwin amd64 x86_64-apple-darwin
+          build_target linux amd64 x86_64-unknown-linux-gnu
+
+      - name: Ensure Homebrew tap token is configured
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "::error::Missing HOMEBREW_TAP_TOKEN secret."
+            exit 1
+          fi
+
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(dist/*.tar.gz dist/*.tar.gz.sha256)
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${files[@]}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "${files[@]}" \
+              --title "Proctor ${RELEASE_TAG}" \
+              --generate-notes
+          fi
+
+      - name: Render Homebrew formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/release/render-homebrew-formula.sh \
+            "${RELEASE_VERSION#v}" \
+            "$(cat dist/proctor-aarch64-apple-darwin.tar.gz.sha256)" \
+            "$(cat dist/proctor-x86_64-apple-darwin.tar.gz.sha256)" \
+            "$(cat dist/proctor-x86_64-unknown-linux-gnu.tar.gz.sha256)" \
+            dist/proctor.rb
+
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+          repository: nclandrei/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Publish Homebrew formula
+        shell: bash
+        working-directory: homebrew-tap
+        env:
+          GITHUB_EMAIL: actions@users.noreply.github.com
+          GITHUB_USER: proctor bot
+        run: |
+          set -euo pipefail
+          cp ../dist/proctor.rb Formula/proctor.rb
+
+          git config user.name "${GITHUB_USER}"
+          git config user.email "${GITHUB_EMAIL}"
+
+          git add Formula/proctor.rb
+          if git diff --cached --quiet; then
+            echo "No Homebrew formula changes to publish."
+            exit 0
+          fi
+
+          git commit -m "proctor ${RELEASE_VERSION#v}"
+          git push
