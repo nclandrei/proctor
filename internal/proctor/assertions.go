@@ -323,6 +323,25 @@ func EvaluateCurlAssertions(expressions, failingExpressions []string, data CurlD
 	return assertions, nil
 }
 
+func EvaluateCLIAssertions(expressions, failingExpressions []string, data CLIData, transcript string, artifacts []Artifact) ([]Assertion, error) {
+	var assertions []Assertion
+	for _, expression := range normalizedLines(expressions) {
+		assertion, err := evaluateCLIAssertion(expression, data, transcript, artifacts, true)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, assertion)
+	}
+	for _, expression := range normalizedLines(failingExpressions) {
+		assertion, err := evaluateCLIAssertion(expression, data, transcript, artifacts, false)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, assertion)
+	}
+	return assertions, nil
+}
+
 func evaluateCurlAssertion(expression string, data CurlData, expectPass bool) (Assertion, error) {
 	left, operator, right, err := splitAssertion(expression)
 	if err != nil {
@@ -383,6 +402,57 @@ func lookupCurlValue(key string, data CurlData) (interface{}, bool) {
 	}
 }
 
+func evaluateCLIAssertion(expression string, data CLIData, transcript string, artifacts []Artifact, expectPass bool) (Assertion, error) {
+	left, operator, right, err := splitAssertion(expression)
+	if err != nil {
+		return Assertion{}, err
+	}
+	actual, ok := lookupCLIValue(left, data, transcript, artifacts)
+	if !ok {
+		return Assertion{}, fmt.Errorf("unsupported cli assertion: %s", expression)
+	}
+	passed, actualText, expectedText, err := compareAssertion(actual, operator, right)
+	if err != nil {
+		return Assertion{}, err
+	}
+	if !expectPass {
+		passed = !passed
+	}
+	result := AssertionFail
+	if passed {
+		result = AssertionPass
+	}
+	return Assertion{
+		Description: expression,
+		Expected:    expectedText,
+		Actual:      actualText,
+		Result:      result,
+	}, nil
+}
+
+func lookupCLIValue(key string, data CLIData, transcript string, artifacts []Artifact) (interface{}, bool) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	switch key {
+	case "output", "transcript":
+		return transcript, true
+	case "command":
+		return data.Command, true
+	case "session", "session_id":
+		return data.SessionID, true
+	case "tool":
+		return data.Tool, true
+	case "exit_code":
+		if data.ExitCode == nil {
+			return nil, false
+		}
+		return *data.ExitCode, true
+	case "screenshot":
+		return hasAnyArtifactKind(artifacts, ArtifactImage), true
+	default:
+		return nil, false
+	}
+}
+
 func splitAssertion(expression string) (string, string, string, error) {
 	for _, operator := range []string{" contains ", " = "} {
 		if left, right, ok := strings.Cut(expression, operator); ok {
@@ -428,8 +498,12 @@ func hasScreenshotLabel(artifacts []Artifact, label string) bool {
 }
 
 func hasAnyScreenshot(artifacts []Artifact) bool {
+	return hasAnyArtifactKind(artifacts, ArtifactImage)
+}
+
+func hasAnyArtifactKind(artifacts []Artifact, kind string) bool {
 	for _, artifact := range artifacts {
-		if artifact.Kind == ArtifactImage {
+		if artifact.Kind == kind {
 			return true
 		}
 	}
@@ -448,6 +522,10 @@ func coveredAssertionKeys(expressions, failingExpressions []string) map[string]b
 		}
 	}
 	return covered
+}
+
+func coveredBrowserKeys(expressions, failingExpressions []string) map[string]bool {
+	return coveredAssertionKeys(expressions, failingExpressions)
 }
 
 func implicitBrowserAssertions(covered map[string]bool, data BrowserData) []Assertion {

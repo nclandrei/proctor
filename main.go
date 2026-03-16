@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/nclandrei/proctor/internal/proctor"
@@ -65,10 +66,13 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	fs.SetOutput(ioDiscard{})
 	var endpoints stringList
 	var edgeCases stringList
+	var legacySurface string
 	opts := proctor.StartOptions{}
 	fs.StringVar(&opts.Platform, "platform", proctor.PlatformWeb, "")
+	fs.StringVar(&legacySurface, "surface", "", "")
 	fs.StringVar(&opts.Feature, "feature", "", "")
 	fs.StringVar(&opts.BrowserURL, "url", "", "")
+	fs.StringVar(&opts.CLICommand, "cli-command", "", "")
 	fs.StringVar(&opts.IOSScheme, "ios-scheme", "", "")
 	fs.StringVar(&opts.IOSBundleID, "ios-bundle-id", "", "")
 	fs.StringVar(&opts.IOSSimulator, "ios-simulator", "", "")
@@ -81,6 +85,10 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if strings.TrimSpace(legacySurface) != "" {
+		opts.Platform = legacySurface
+	}
+	opts.Surface = opts.Platform
 	opts.CurlEndpoints = endpoints
 	opts.EdgeCaseInputs = edgeCases
 	if err := fillStartPrompts(os.Stdin, os.Stdout, &opts); err != nil {
@@ -108,29 +116,18 @@ func runStatus(store *proctor.Store, cwd string) error {
 	fmt.Printf("Feature: %s\n", run.Feature)
 	for _, item := range eval.ScenarioEvaluations {
 		fmt.Printf("- %s (%s)\n", item.Scenario.Label, item.Scenario.ID)
-		if item.Scenario.BrowserRequired {
-			if item.BrowserOK {
-				fmt.Println("  browser: pass")
-			} else {
-				fmt.Printf("  browser: fail (%s)\n", strings.Join(item.BrowserIssues, ", "))
-			}
-		}
-		if item.Scenario.IOSRequired {
-			if item.IOSOK {
-				fmt.Println("  ios: pass")
-			} else {
-				fmt.Printf("  ios: fail (%s)\n", strings.Join(item.IOSIssues, ", "))
-			}
-		}
 		if item.Scenario.CurlRequired {
 			if len(item.Scenario.CurlEndpoints) > 0 {
 				fmt.Printf("  curl contract: %s\n", strings.Join(item.Scenario.CurlEndpoints, "; "))
 			}
-			if item.CurlOK {
-				fmt.Println("  curl: pass")
-			} else {
-				fmt.Printf("  curl: fail (%s)\n", strings.Join(item.CurlIssues, ", "))
+		}
+		for _, surface := range item.Scenario.RequiredSurfaces() {
+			ok, _ := item.SurfaceStatus(surface)
+			if ok {
+				fmt.Printf("  %s: pass\n", surface)
+				continue
 			}
+			fmt.Printf("  %s: fail (%s)\n", surface, strings.Join(item.SurfaceIssues(surface), ", "))
 		}
 	}
 	if len(eval.GlobalMissing) > 0 {
@@ -149,7 +146,7 @@ func runStatus(store *proctor.Store, cwd string) error {
 
 func runRecord(store *proctor.Store, cwd string, args []string) error {
 	if len(args) == 0 {
-		return errors.New("record requires a surface: browser, ios, or curl")
+		return errors.New("record requires a surface: browser, ios, curl, or cli")
 	}
 	run, err := store.LoadRun(proctor.RepoRoot(cwd))
 	if err != nil {
@@ -162,6 +159,8 @@ func runRecord(store *proctor.Store, cwd string, args []string) error {
 		return runRecordIOS(store, run, args[1:])
 	case "curl":
 		return runRecordCurl(store, run, args[1:])
+	case "cli":
+		return runRecordCLI(store, run, args[1:])
 	default:
 		return fmt.Errorf("unknown record surface: %s", args[0])
 	}
@@ -258,6 +257,50 @@ func runRecordCurl(store *proctor.Store, run proctor.Run, args []string) error {
 	return nil
 }
 
+func runRecordCLI(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("record cli", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var screenshots stringList
+	var passAssertions stringList
+	var failAssertions stringList
+	var exitCodeText string
+	opts := proctor.CLIRecordOptions{}
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Tool, "tool", "terminal-session", "")
+	fs.StringVar(&opts.Command, "command", "", "")
+	fs.StringVar(&opts.TranscriptPath, "transcript", "", "")
+	fs.StringVar(&exitCodeText, "exit-code", "", "")
+	fs.Var(&screenshots, "screenshot", "")
+	fs.Var(&passAssertions, "assert", "")
+	fs.Var(&failAssertions, "fail-assert", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(exitCodeText) != "" {
+		value, err := strconv.Atoi(strings.TrimSpace(exitCodeText))
+		if err != nil {
+			return fmt.Errorf("invalid --exit-code: %w", err)
+		}
+		opts.ExitCode = &value
+	}
+	opts.Screenshots = map[string]string{}
+	for _, item := range screenshots {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			return fmt.Errorf("invalid screenshot format: %s", item)
+		}
+		opts.Screenshots[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	opts.PassAssertions = passAssertions
+	opts.FailAssertions = failAssertions
+	if err := proctor.RecordCLI(store, run, opts); err != nil {
+		return err
+	}
+	fmt.Printf("Recorded cli evidence for %s\n", opts.ScenarioID)
+	return nil
+}
+
 func runDone(store *proctor.Store, cwd string) error {
 	run, err := store.LoadRun(proctor.RepoRoot(cwd))
 	if err != nil {
@@ -273,14 +316,12 @@ func runDone(store *proctor.Store, cwd string) error {
 	}
 	fmt.Println("FAIL")
 	for _, item := range eval.ScenarioEvaluations {
-		if item.Scenario.BrowserRequired && !item.BrowserOK {
-			fmt.Printf("- %s: %s\n", item.Scenario.ID, strings.Join(item.BrowserIssues, ", "))
-		}
-		if item.Scenario.IOSRequired && !item.IOSOK {
-			fmt.Printf("- %s: %s\n", item.Scenario.ID, strings.Join(item.IOSIssues, ", "))
-		}
-		if item.Scenario.CurlRequired && !item.CurlOK {
-			fmt.Printf("- %s: %s\n", item.Scenario.ID, strings.Join(item.CurlIssues, ", "))
+		for _, surface := range item.Scenario.RequiredSurfaces() {
+			ok, _ := item.SurfaceStatus(surface)
+			if ok {
+				continue
+			}
+			fmt.Printf("- %s (%s): %s\n", item.Scenario.ID, surface, strings.Join(item.SurfaceIssues(surface), ", "))
 		}
 	}
 	for _, item := range eval.GlobalMissing {
@@ -305,12 +346,25 @@ func runReport(store *proctor.Store, cwd string) error {
 func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) error {
 	reader := bufio.NewReader(in)
 	var err error
+
+	platform := strings.TrimSpace(opts.Platform)
+	if platform == "" {
+		platform = strings.TrimSpace(opts.Surface)
+	}
+	if platform == "" {
+		platform = proctor.PlatformWeb
+	}
+	opts.Platform = platform
+	opts.Surface = platform
+
 	if strings.TrimSpace(opts.Feature) == "" {
 		if opts.Feature, err = prompt(reader, out, "Feature / flow name"); err != nil {
 			return err
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(opts.Platform), proctor.PlatformIOS) {
+
+	switch proctor.NormalizeRunSurface(platform) {
+	case proctor.PlatformIOS:
 		if strings.TrimSpace(opts.IOSScheme) == "" {
 			if opts.IOSScheme, err = prompt(reader, out, "iOS scheme"); err != nil {
 				return err
@@ -321,11 +375,20 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 				return err
 			}
 		}
-	} else if strings.TrimSpace(opts.BrowserURL) == "" {
-		if opts.BrowserURL, err = prompt(reader, out, "Browser URL"); err != nil {
-			return err
+	case proctor.PlatformCLI:
+		if strings.TrimSpace(opts.CLICommand) == "" {
+			if opts.CLICommand, err = prompt(reader, out, "CLI command"); err != nil {
+				return err
+			}
+		}
+	default:
+		if strings.TrimSpace(opts.BrowserURL) == "" {
+			if opts.BrowserURL, err = prompt(reader, out, "Browser URL"); err != nil {
+				return err
+			}
 		}
 	}
+
 	if strings.TrimSpace(opts.HappyPath) == "" {
 		if opts.HappyPath, err = prompt(reader, out, "Happy path"); err != nil {
 			return err
@@ -337,7 +400,7 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 		}
 	}
 	if len(opts.EdgeCaseInputs) == 0 {
-		for _, category := range proctor.EdgeCaseCategoriesForPlatform(opts.Platform) {
+		for _, category := range proctor.EdgeCaseCategoriesForPlatform(platform) {
 			answer, err := prompt(reader, out, fmt.Sprintf("%s (scenario(s) separated by ';' or N/A: reason)", category))
 			if err != nil {
 				return err
@@ -345,28 +408,30 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 			opts.EdgeCaseInputs = append(opts.EdgeCaseInputs, category+"="+answer)
 		}
 	}
-	if strings.TrimSpace(opts.CurlMode) == "" {
-		if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/scenario/skip)"); err != nil {
-			return err
+	if proctor.NormalizeRunSurface(platform) != proctor.PlatformCLI {
+		if strings.TrimSpace(opts.CurlMode) == "" {
+			if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/scenario/skip)"); err != nil {
+				return err
+			}
 		}
-	}
-	if strings.EqualFold(opts.CurlMode, proctor.CurlModeRequired) && len(opts.CurlEndpoints) == 0 {
-		value, err := prompt(reader, out, "curl endpoint(s), separated by ';'")
-		if err != nil {
-			return err
+		if strings.EqualFold(opts.CurlMode, proctor.CurlModeRequired) && len(opts.CurlEndpoints) == 0 {
+			value, err := prompt(reader, out, "curl endpoint(s), separated by ';'")
+			if err != nil {
+				return err
+			}
+			opts.CurlEndpoints = splitSemicolonList(value)
 		}
-		opts.CurlEndpoints = splitSemicolonList(value)
-	}
-	if strings.EqualFold(opts.CurlMode, proctor.CurlModeScenario) && len(opts.CurlEndpoints) == 0 {
-		value, err := prompt(reader, out, "curl scenario plan(s), separated by '|' (SCENARIO=METHOD /path[; METHOD /path])")
-		if err != nil {
-			return err
+		if strings.EqualFold(opts.CurlMode, proctor.CurlModeScenario) && len(opts.CurlEndpoints) == 0 {
+			value, err := prompt(reader, out, "curl scenario plan(s), separated by '|' (SCENARIO=METHOD /path[; METHOD /path])")
+			if err != nil {
+				return err
+			}
+			opts.CurlEndpoints = splitPipeList(value)
 		}
-		opts.CurlEndpoints = splitPipeList(value)
-	}
-	if strings.EqualFold(opts.CurlMode, proctor.CurlModeSkip) && strings.TrimSpace(opts.CurlSkipReason) == "" {
-		if opts.CurlSkipReason, err = prompt(reader, out, "Reason for skipping direct HTTP verification"); err != nil {
-			return err
+		if strings.EqualFold(opts.CurlMode, proctor.CurlModeSkip) && strings.TrimSpace(opts.CurlSkipReason) == "" {
+			if opts.CurlSkipReason, err = prompt(reader, out, "Reason for skipping direct HTTP verification"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -8,10 +8,16 @@ import (
 const (
 	PlatformWeb = "web"
 	PlatformIOS = "ios"
+	PlatformCLI = "cli"
+
+	RunSurfaceWeb = PlatformWeb
+	RunSurfaceIOS = PlatformIOS
+	RunSurfaceCLI = PlatformCLI
 
 	SurfaceBrowser = "browser"
 	SurfaceIOS     = "ios"
 	SurfaceCurl    = "curl"
+	SurfaceCLI     = "cli"
 
 	CurlModeRequired = "required"
 	CurlModeScenario = "scenario"
@@ -59,15 +65,39 @@ var IOSEdgeCaseCategories = []string{
 	"any feature-specific risks",
 }
 
+var CLIEdgeCaseCategories = []string{
+	"invalid or malformed input",
+	"missing required args, files, config, or env",
+	"retry, rerun, and idempotency",
+	"long-running output, streaming, or progress state",
+	"interrupts, cancellation, and signals",
+	"tty, pipe, and non-interactive behavior",
+	"terminal layout, wrapping, and resize behavior",
+	"keyboard navigation and shortcut behavior",
+	"state, config, and persistence across reruns",
+	"stderr, exit codes, and partial failure reporting",
+	"any feature-specific risks",
+}
+
 var EdgeCaseCategories = append([]string(nil), WebEdgeCaseCategories...)
 
 func EdgeCaseCategoriesForPlatform(platform string) []string {
 	switch normalizePlatform(platform) {
 	case PlatformIOS:
 		return append([]string(nil), IOSEdgeCaseCategories...)
+	case PlatformCLI:
+		return append([]string(nil), CLIEdgeCaseCategories...)
 	default:
 		return append([]string(nil), WebEdgeCaseCategories...)
 	}
+}
+
+func NormalizeRunSurface(surface string) string {
+	return normalizePlatform(surface)
+}
+
+func EdgeCaseCategoriesForSurface(surface string) []string {
+	return EdgeCaseCategoriesForPlatform(surface)
 }
 
 type Run struct {
@@ -75,8 +105,10 @@ type Run struct {
 	RepoSlug           string             `json:"repo_slug"`
 	RepoRoot           string             `json:"repo_root"`
 	Platform           string             `json:"platform"`
+	Surface            string             `json:"surface"`
 	Feature            string             `json:"feature"`
 	BrowserURL         string             `json:"browser_url"`
+	CLICommand         string             `json:"cli_command,omitempty"`
 	CurlMode           string             `json:"curl_mode,omitempty"`
 	IOS                IOSTarget          `json:"ios,omitempty"`
 	CurlRequired       bool               `json:"curl_required"`
@@ -99,6 +131,7 @@ type Scenario struct {
 	BrowserRequired bool     `json:"browser_required"`
 	IOSRequired     bool     `json:"ios_required,omitempty"`
 	CurlRequired    bool     `json:"curl_required"`
+	CLIRequired     bool     `json:"cli_required"`
 	CurlEndpoints   []string `json:"curl_endpoints,omitempty"`
 }
 
@@ -123,6 +156,7 @@ type Evidence struct {
 	Browser    *BrowserData `json:"browser,omitempty"`
 	IOS        *IOSData     `json:"ios,omitempty"`
 	Curl       *CurlData    `json:"curl,omitempty"`
+	CLI        *CLIData     `json:"cli,omitempty"`
 }
 
 type Provenance struct {
@@ -205,10 +239,20 @@ type CurlData struct {
 	Body           string            `json:"body,omitempty"`
 }
 
+type CLIData struct {
+	Command           string `json:"command"`
+	SessionID         string `json:"session_id"`
+	Tool              string `json:"tool"`
+	ExitCode          *int   `json:"exit_code,omitempty"`
+	TranscriptPreview string `json:"transcript_preview,omitempty"`
+}
+
 type StartOptions struct {
 	Platform       string
+	Surface        string
 	Feature        string
 	BrowserURL     string
+	CLICommand     string
 	IOSScheme      string
 	IOSBundleID    string
 	IOSSimulator   string
@@ -247,6 +291,18 @@ type CurlRecordOptions struct {
 	FailAssertions []string
 }
 
+type CLIRecordOptions struct {
+	ScenarioID     string
+	SessionID      string
+	Tool           string
+	Command        string
+	TranscriptPath string
+	ExitCode       *int
+	Screenshots    map[string]string
+	PassAssertions []string
+	FailAssertions []string
+}
+
 type Evaluation struct {
 	Complete            bool
 	ScenarioEvaluations []ScenarioEvaluation
@@ -258,9 +314,70 @@ type ScenarioEvaluation struct {
 	BrowserOK     bool
 	IOSOK         bool
 	CurlOK        bool
+	CLIOK         bool
 	BrowserIssues []string
 	IOSIssues     []string
 	CurlIssues    []string
+	CLIIssues     []string
+}
+
+func (s Scenario) RequiredSurfaces() []string {
+	var surfaces []string
+	if s.BrowserRequired {
+		surfaces = append(surfaces, SurfaceBrowser)
+	}
+	if s.IOSRequired {
+		surfaces = append(surfaces, SurfaceIOS)
+	}
+	if s.CurlRequired {
+		surfaces = append(surfaces, SurfaceCurl)
+	}
+	if s.CLIRequired {
+		surfaces = append(surfaces, SurfaceCLI)
+	}
+	return surfaces
+}
+
+func (s ScenarioEvaluation) SurfaceStatus(surface string) (bool, bool) {
+	switch surface {
+	case SurfaceBrowser:
+		if !s.Scenario.BrowserRequired {
+			return false, false
+		}
+		return s.BrowserOK, true
+	case SurfaceIOS:
+		if !s.Scenario.IOSRequired {
+			return false, false
+		}
+		return s.IOSOK, true
+	case SurfaceCurl:
+		if !s.Scenario.CurlRequired {
+			return false, false
+		}
+		return s.CurlOK, true
+	case SurfaceCLI:
+		if !s.Scenario.CLIRequired {
+			return false, false
+		}
+		return s.CLIOK, true
+	default:
+		return false, false
+	}
+}
+
+func (s ScenarioEvaluation) SurfaceIssues(surface string) []string {
+	switch surface {
+	case SurfaceBrowser:
+		return append([]string(nil), s.BrowserIssues...)
+	case SurfaceIOS:
+		return append([]string(nil), s.IOSIssues...)
+	case SurfaceCurl:
+		return append([]string(nil), s.CurlIssues...)
+	case SurfaceCLI:
+		return append([]string(nil), s.CLIIssues...)
+	default:
+		return nil
+	}
 }
 
 func normalizePlatform(platform string) string {
@@ -269,6 +386,8 @@ func normalizePlatform(platform string) string {
 		return PlatformWeb
 	case PlatformIOS:
 		return PlatformIOS
+	case PlatformCLI:
+		return PlatformCLI
 	default:
 		return strings.ToLower(strings.TrimSpace(platform))
 	}

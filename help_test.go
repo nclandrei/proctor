@@ -24,6 +24,25 @@ func TestCommandHelpSupportsNestedSubcommandsWithoutActiveRun(t *testing.T) {
 	}
 }
 
+func TestCommandHelpSupportsCLINestedSubcommandsWithoutActiveRun(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "cli", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "proctor record cli") {
+		t.Fatalf("expected cli help text, got:\n%s", text)
+	}
+	if !strings.Contains(text, "--transcript /abs/path/pane.txt") {
+		t.Fatalf("expected cli help to include transcript example, got:\n%s", text)
+	}
+	if !strings.Contains(text, "tmux or an equivalent persistent multiplexer") {
+		t.Fatalf("expected cli help to include terminal guidance, got:\n%s", text)
+	}
+}
+
 func TestHelpCommandSupportsNestedTopics(t *testing.T) {
 	text, ok, err := commandHelp([]string{"help", "record", "curl"})
 	if err != nil {
@@ -69,14 +88,37 @@ func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"Codex, Claude Code",
+		"Reading this help text is not the task",
+		"Mandatory next step for the agent",
 		"proctor start --help",
 		"proctor record browser --help",
+		"proctor record cli --help",
 		"--curl scenario",
 		"proctor record ios --help",
 		"report.html is always rendered in dark mode",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("expected help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
+func TestRootHelpMentionsCLIWorkflow(t *testing.T) {
+	text, ok, err := commandHelp([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"Typical CLI workflow",
+		"--platform cli",
+		"--cli-command \"magellan prompts inspect onboarding\"",
+		"tmux or an equivalent",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected root help to mention %q, got:\n%s", needle, text)
 		}
 	}
 }
@@ -146,6 +188,25 @@ func TestRecordIOSHelpMentionsImplicitHealthChecks(t *testing.T) {
 	}
 }
 
+func TestRecordCLIHelpMentionsTranscriptAndScreenshotRequirements(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "cli", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"--command \"cli subcommand --flag\"",
+		"--transcript PATH",
+		"every cli scenario needs a transcript, at least one screenshot, and at least one passing assertion",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected cli help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
 func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 	text, ok, err := commandHelp([]string{"start", "--help"})
 	if err != nil {
@@ -155,6 +216,8 @@ func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 		t.Fatal("expected help to be handled")
 	}
 	for _, needle := range []string{
+		"--platform web|ios|cli",
+		"--cli-command TEXT",
 		"--curl required|scenario|skip",
 		`--curl-endpoint "happy-path=POST /api/login"`,
 		"require curl only for named risky scenarios",

@@ -50,6 +50,10 @@ func commandHelp(args []string) (string, bool, error) {
 			if wantsHelp(args[2:]) {
 				return recordBrowserHelpText(), true, nil
 			}
+		case "cli":
+			if wantsHelp(args[2:]) {
+				return recordCLIHelpText(), true, nil
+			}
 		case "ios":
 			if wantsHelp(args[2:]) {
 				return recordIOSHelpText(), true, nil
@@ -88,6 +92,8 @@ func topicHelp(args []string) (string, error) {
 		switch args[1] {
 		case "browser":
 			return recordBrowserHelpText(), nil
+		case "cli":
+			return recordCLIHelpText(), nil
 		case "ios":
 			return recordIOSHelpText(), nil
 		case "curl":
@@ -115,6 +121,18 @@ func rootHelpText() string {
 Proctor is intentionally long-form. The agent is supposed to learn the workflow
 from this help text, then come back with real proof instead of a hand-wavy
 "tested it" claim.
+
+Reading this help text is not the task.
+The task is to inspect the current diff, identify the user-visible change,
+create the verification contract, run the manual checks, and record evidence.
+Proctor is the verifier. It is not the feature under test.
+
+Mandatory next step for the agent after reading this help:
+  1. inspect the current repo diff and identify the feature to verify
+  2. run proctor start with the right platform for that feature
+  3. perform the actual manual checks
+  4. attach evidence with the relevant proctor record command(s)
+  5. finish with proctor done
 
 Proctor does three things:
   1. creates a verification contract for the feature being tested
@@ -213,6 +231,39 @@ Typical iOS workflow:
     --assert 'bundle_id = com.example.pagena' \
     --assert 'app_launch = true'
 
+Typical CLI workflow:
+  proctor start \
+    --platform cli \
+    --feature "magellan prompt inspection flow" \
+    --cli-command "magellan prompts inspect onboarding" \
+    --happy-path "Inspecting a known prompt shows the body and metadata in a readable terminal layout." \
+    --failure-path "Inspecting an unknown prompt exits non-zero and prints a clear error." \
+    --edge-case "invalid or malformed input=Broken prompt syntax shows a validation error without a panic" \
+    --edge-case "missing required args, files, config, or env=Missing prompt slug explains what argument is required" \
+    --edge-case "retry, rerun, and idempotency=Running the same inspect command twice gives the same result" \
+    --edge-case "long-running output, streaming, or progress state=N/A: single-shot command with immediate output" \
+    --edge-case "interrupts, cancellation, and signals=N/A: command exits immediately" \
+    --edge-case "tty, pipe, and non-interactive behavior=Piped output still renders the inspected prompt body without ANSI garbage" \
+    --edge-case "terminal layout, wrapping, and resize behavior=The inspected prompt still wraps cleanly in a narrow terminal" \
+    --edge-case "keyboard navigation and shortcut behavior=N/A: single-shot command with no in-app key handling" \
+    --edge-case "state, config, and persistence across reruns=N/A: read-only inspection command" \
+    --edge-case "stderr, exit codes, and partial failure reporting=Unknown prompt returns a non-zero exit code and prints the error on stderr"
+
+  # Proctor does not open the terminal for you.
+  # Preferred, not required: use a real terminal app plus tmux or an equivalent
+  # persistent multiplexer so the agent can keep one session alive, drive
+  # keyboard input deterministically, capture pane output, and take screenshots.
+  proctor record cli \
+    --scenario happy-path \
+    --session magellan-cli-1 \
+    --command "magellan prompts inspect onboarding" \
+    --transcript /abs/path/pane.txt \
+    --screenshot terminal=/abs/path/terminal.png \
+    --exit-code 0 \
+    --assert 'output contains onboarding' \
+    --assert 'exit_code = 0' \
+    --assert 'screenshot = true'
+
 What counts as browser evidence:
   - a session id string for the browser run
   - a desktop screenshot
@@ -286,9 +337,17 @@ use your own simulator tooling. Proctor does not boot the simulator, call Xcode,
 or take the screenshots for you. It only records the evidence and blocks
 completion when the contract is incomplete.
 
+What counts as CLI evidence:
+  - a real terminal session id string
+  - at least one terminal screenshot
+  - a transcript artifact from that terminal session
+  - the actual command that was exercised
+  - assertions tied to the scenario
+
 Use subcommand help for exact flags:
   proctor start --help
   proctor record browser --help
+  proctor record cli --help
   proctor record ios --help
   proctor record curl --help
   proctor done --help
@@ -312,10 +371,8 @@ You can run start interactively, but agents usually do better with explicit
 flags so the contract is reproducible.
 
 Required:
-  --platform web|ios         Defaults to web
+  --platform web|ios|cli     Defaults to web
   --feature TEXT             Human label for the feature or flow under test
-  --curl required|scenario|skip
-                             HTTP verification mode for the contract
   --happy-path TEXT          Primary success scenario
   --failure-path TEXT        Primary failure or back-out scenario
   --edge-case "CATEGORY=..." Edge-case coverage by category
@@ -323,20 +380,29 @@ Required:
 Platform-specific flags:
   web:
     --url URL                Browser URL for the flow
+    --curl required|scenario|skip
+                             HTTP verification mode for the contract
   ios:
     --ios-scheme TEXT        Xcode scheme or app target name
     --ios-bundle-id TEXT     App bundle id to launch on the simulator
     --ios-simulator TEXT     Optional simulator label to pin the intended device
+    --curl required|scenario|skip
+                             HTTP verification mode for the contract
+  cli:
+    --cli-command TEXT       Command line the agent is manually exercising
+
+Compatibility alias:
+  --surface web|ios|cli      Legacy alias for --platform
 
 Conditional flags:
   --curl-endpoint TEXT       Repeat once per endpoint when --curl required
                              or once per risky scenario when --curl scenario
-  --curl-skip-reason TEXT    Required when --curl skip
+  --curl-skip-reason TEXT    Required when --curl skip on web or ios
 
 curl modes:
   required  shorthand that requires curl for happy-path and failure-path
   scenario  require curl only for named risky scenarios
-  skip      require no curl evidence for this run; must include a reason
+  skip      require no curl evidence for this web or ios run; must include a reason
 
 scenario curl format:
   --curl-endpoint "happy-path=POST /api/login"
@@ -355,6 +421,10 @@ Web categories:
 	}
 	b.WriteString("\niOS categories:\n")
 	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformIOS) {
+		b.WriteString("  - " + category + "\n")
+	}
+	b.WriteString("\nCLI categories:\n")
+	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformCLI) {
 		b.WriteString("  - " + category + "\n")
 	}
 	b.WriteString(`
@@ -422,10 +492,29 @@ iOS example:
     --edge-case "accessibility, dynamic type, and keyboard behavior=N/A: this pass is visual only" \
     --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 
+CLI example:
+  proctor start \
+    --platform cli \
+    --feature "magellan prompt inspection flow" \
+    --cli-command "magellan prompts inspect onboarding" \
+    --happy-path "Inspecting a known prompt shows the body and metadata in a readable terminal layout." \
+    --failure-path "Inspecting an unknown prompt exits non-zero and prints a clear error." \
+    --edge-case "invalid or malformed input=Broken prompt syntax shows a validation error without a panic" \
+    --edge-case "missing required args, files, config, or env=Missing prompt slug explains what argument is required" \
+    --edge-case "retry, rerun, and idempotency=Running the same inspect command twice gives the same result" \
+    --edge-case "long-running output, streaming, or progress state=N/A: single-shot command with immediate output" \
+    --edge-case "interrupts, cancellation, and signals=N/A: command exits immediately" \
+    --edge-case "tty, pipe, and non-interactive behavior=Piped output still renders the inspected prompt body without ANSI garbage" \
+    --edge-case "terminal layout, wrapping, and resize behavior=The inspected prompt still wraps cleanly in a narrow terminal" \
+    --edge-case "keyboard navigation and shortcut behavior=N/A: single-shot command with no in-app key handling" \
+    --edge-case "state, config, and persistence across reruns=N/A: read-only inspection command" \
+    --edge-case "stderr, exit codes, and partial failure reporting=Unknown prompt returns a non-zero exit code and prints the error on stderr" \
+    --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
+
 After start:
   - run your platform checks
-  - attach web evidence with proctor record browser or iOS evidence with proctor record ios
-  - wrap curl with proctor record curl for the scenarios that require it
+  - attach web evidence with proctor record browser, iOS evidence with proctor record ios, or terminal evidence with proctor record cli
+  - wrap curl with proctor record curl for the scenarios that require it on web or ios runs
   - finish with proctor done
 `)
 	return b.String()
@@ -436,16 +525,19 @@ func recordHelpText() string {
 
 Usage:
   proctor record browser [flags]
+  proctor record cli [flags]
   proctor record ios [flags]
   proctor record curl [flags] -- <command>
 
 Use:
   proctor record browser --help
+  proctor record cli --help
   proctor record ios --help
   proctor record curl --help
 
 Important:
   - browser evidence attaches one browser run to one named scenario
+  - cli evidence attaches one terminal session run to one named scenario
   - ios evidence attaches one simulator run to one named scenario
   - curl evidence wraps one real command for one named scenario
   - curl requirements are decided per scenario, not by endpoint alone
@@ -531,6 +623,61 @@ Notes:
   - every web run must record at least one desktop screenshot and at least one mobile screenshot before proctor done can pass
   - implicit zero-issues assertions only cover console errors, page errors, failed requests, and HTTP errors
   - console warnings are recorded in the report but stay non-blocking unless you assert them explicitly
+`
+}
+
+func recordCLIHelpText() string {
+	return `proctor record cli - attach terminal evidence to one scenario
+
+Usage:
+  proctor record cli \
+    --scenario ID \
+    --session SESSION \
+    --command "cli subcommand --flag" \
+    --transcript /abs/path/pane.txt \
+    --screenshot LABEL=/abs/path/terminal.png \
+    [--exit-code N] \
+    --assert 'EXPRESSION' \
+    [--assert 'EXPRESSION' ...]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable terminal session label or id string
+  --command TEXT             Actual command line exercised in the terminal
+  --transcript PATH          Captured terminal transcript from that session
+  --screenshot LABEL=PATH    At least one screenshot from the verified terminal run
+  --assert TEXT              At least one passing assertion
+
+Optional:
+  --tool NAME                Defaults to terminal-session
+  --exit-code N              Captured process exit code when relevant
+  --fail-assert TEXT         Invert one assertion when you need to prove a failure condition
+
+Supported cli assertions:
+  output contains onboarding
+  output contains prompt not found
+  command contains magellan
+  session contains cli-session
+  tool = terminal-session
+  exit_code = 0
+  screenshot = true
+
+Example:
+  proctor record cli \
+    --scenario happy-path \
+    --session magellan-cli-1 \
+    --command "magellan prompts inspect onboarding" \
+    --transcript /abs/path/pane.txt \
+    --screenshot terminal=/abs/path/terminal.png \
+    --exit-code 0 \
+    --assert 'output contains onboarding' \
+    --assert 'exit_code = 0' \
+    --assert 'screenshot = true'
+
+Notes:
+  - Preferred, not required: use a real terminal app plus tmux or an equivalent persistent multiplexer
+  - one transcript and screenshot set can be reused for multiple scenarios if it genuinely proves each one
+  - every cli scenario needs a transcript, at least one screenshot, and at least one passing assertion
 `
 }
 
@@ -657,6 +804,7 @@ Usage:
 This prints:
   - every scenario in the contract
   - whether browser evidence passes or fails
+  - whether cli evidence passes or fails
   - whether ios evidence passes or fails
   - whether curl evidence passes or fails for scenarios that require it
   - any global gaps such as missing required screenshots
@@ -674,6 +822,7 @@ Usage:
 Passes only when:
   - every required scenario has valid evidence
   - browser scenarios have trusted browser evidence
+  - cli scenarios have trusted terminal evidence
   - ios scenarios have trusted ios evidence
   - the run includes the required screenshot coverage for its platform
   - required assertions pass

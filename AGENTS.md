@@ -2,15 +2,17 @@
 
 ## Repo Focus
 
-This repository builds `proctor`, a Go CLI that enforces manual verification contracts for agent-built web and iOS features.
+This repository builds `proctor`, a Go CLI that enforces manual verification contracts for agent-built web, iOS, and CLI features.
 
 The current implementation target is:
 
 - shared core
 - full web flow
 - full iOS simulator flow
+- full CLI and TUI flow
 - browser evidence
 - iOS simulator evidence
+- terminal screenshot + transcript evidence
 - risk-based `curl` evidence
 
 In the current contract model, `curl` risk is decided per scenario. Endpoints are attached to the scenarios that need direct HTTP verification; they are not a separate completion unit by themselves.
@@ -19,6 +21,7 @@ In the current contract model, `curl` risk is decided per scenario. Endpoints ar
 - Keep runtime artifacts out of the repo. Proctor writes runs under `~/.proctor` by default.
 - Treat browser evidence as higher-trust than imported notes. Browser records need a session id, screenshots, a report artifact, and assertions.
 - Treat iOS evidence the same way. iOS records need a simulator session id, screenshots, a report artifact, and assertions.
+- Treat CLI evidence as real terminal-session proof. CLI records need a session id, screenshots, a transcript artifact, the exercised command, and assertions.
 - Reports are derived output, not source-of-truth evidence.
 - Edge cases are first-class scenarios. Do not collapse them into generic notes.
 - Prefer the Go standard library unless an external dependency clearly improves the core product.
@@ -27,7 +30,7 @@ In the current contract model, `curl` risk is decided per scenario. Endpoints ar
 
 - Keep the CLI thin.
 - Keep run storage, evidence validation, and report generation in reusable package code.
-- Preserve clean extension points for future CLI and additional surfaces.
+- Preserve clean extension points for additional surfaces.
 
 ## Verification
 

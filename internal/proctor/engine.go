@@ -11,29 +11,15 @@ import (
 )
 
 func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
-	platform := normalizePlatform(opts.Platform)
+	platform := normalizePlatform(firstNonEmpty(opts.Platform, opts.Surface))
 	switch platform {
-	case PlatformWeb, PlatformIOS:
+	case PlatformWeb, PlatformIOS, PlatformCLI:
 	default:
-		return Run{}, fmt.Errorf("--platform must be either web or ios")
+		return Run{}, fmt.Errorf("--platform must be either web, ios, or cli")
 	}
 	curlMode := strings.ToLower(strings.TrimSpace(opts.CurlMode))
-	switch curlMode {
-	case CurlModeRequired, CurlModeScenario, CurlModeSkip:
-	default:
-		return Run{}, fmt.Errorf("--curl must be one of required, scenario, or skip")
-	}
 	if strings.TrimSpace(opts.Feature) == "" {
 		return Run{}, fmt.Errorf("--feature is required")
-	}
-	if platform == PlatformWeb && strings.TrimSpace(opts.BrowserURL) == "" {
-		return Run{}, fmt.Errorf("--url is required when --platform web")
-	}
-	if platform == PlatformIOS && strings.TrimSpace(opts.IOSScheme) == "" {
-		return Run{}, fmt.Errorf("--ios-scheme is required when --platform ios")
-	}
-	if platform == PlatformIOS && strings.TrimSpace(opts.IOSBundleID) == "" {
-		return Run{}, fmt.Errorf("--ios-bundle-id is required when --platform ios")
 	}
 	if strings.TrimSpace(opts.HappyPath) == "" {
 		return Run{}, fmt.Errorf("--happy-path is required")
@@ -42,14 +28,69 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		return Run{}, fmt.Errorf("--failure-path is required")
 	}
 	curlEndpoints := normalizedLines(opts.CurlEndpoints)
-	if curlMode == CurlModeRequired && len(curlEndpoints) == 0 {
-		return Run{}, fmt.Errorf("--curl-endpoint is required when --curl required")
-	}
-	if curlMode == CurlModeScenario && len(curlEndpoints) == 0 {
-		return Run{}, fmt.Errorf("--curl-endpoint is required when --curl scenario")
-	}
-	if curlMode == CurlModeSkip && strings.TrimSpace(opts.CurlSkipReason) == "" {
-		return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
+
+	switch platform {
+	case PlatformWeb:
+		switch curlMode {
+		case CurlModeRequired, CurlModeScenario, CurlModeSkip:
+		default:
+			return Run{}, fmt.Errorf("--curl must be one of required, scenario, or skip")
+		}
+		if strings.TrimSpace(opts.BrowserURL) == "" {
+			return Run{}, fmt.Errorf("--url is required when --platform web")
+		}
+		if strings.TrimSpace(opts.CLICommand) != "" {
+			return Run{}, fmt.Errorf("--cli-command is only valid when --platform cli")
+		}
+		if strings.TrimSpace(opts.IOSScheme) != "" || strings.TrimSpace(opts.IOSBundleID) != "" || strings.TrimSpace(opts.IOSSimulator) != "" {
+			return Run{}, fmt.Errorf("--ios-* flags are only valid when --platform ios")
+		}
+		if curlMode == CurlModeRequired && len(curlEndpoints) == 0 {
+			return Run{}, fmt.Errorf("--curl-endpoint is required when --curl required")
+		}
+		if curlMode == CurlModeScenario && len(curlEndpoints) == 0 {
+			return Run{}, fmt.Errorf("--curl-endpoint is required when --curl scenario")
+		}
+		if curlMode == CurlModeSkip && strings.TrimSpace(opts.CurlSkipReason) == "" {
+			return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
+		}
+	case PlatformIOS:
+		switch curlMode {
+		case CurlModeRequired, CurlModeScenario, CurlModeSkip:
+		default:
+			return Run{}, fmt.Errorf("--curl must be one of required, scenario, or skip")
+		}
+		if strings.TrimSpace(opts.IOSScheme) == "" {
+			return Run{}, fmt.Errorf("--ios-scheme is required when --platform ios")
+		}
+		if strings.TrimSpace(opts.IOSBundleID) == "" {
+			return Run{}, fmt.Errorf("--ios-bundle-id is required when --platform ios")
+		}
+		if strings.TrimSpace(opts.BrowserURL) != "" {
+			return Run{}, fmt.Errorf("--url is only valid when --platform web")
+		}
+		if strings.TrimSpace(opts.CLICommand) != "" {
+			return Run{}, fmt.Errorf("--cli-command is only valid when --platform cli")
+		}
+		if curlMode == CurlModeRequired && len(curlEndpoints) == 0 {
+			return Run{}, fmt.Errorf("--curl-endpoint is required when --curl required")
+		}
+		if curlMode == CurlModeScenario && len(curlEndpoints) == 0 {
+			return Run{}, fmt.Errorf("--curl-endpoint is required when --curl scenario")
+		}
+		if curlMode == CurlModeSkip && strings.TrimSpace(opts.CurlSkipReason) == "" {
+			return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
+		}
+	case PlatformCLI:
+		if strings.TrimSpace(opts.CLICommand) == "" {
+			return Run{}, fmt.Errorf("--cli-command is required when --platform cli")
+		}
+		if strings.TrimSpace(opts.BrowserURL) != "" || strings.TrimSpace(opts.IOSScheme) != "" || strings.TrimSpace(opts.IOSBundleID) != "" || strings.TrimSpace(opts.IOSSimulator) != "" {
+			return Run{}, fmt.Errorf("--url and --ios-* flags are only valid on their matching platforms")
+		}
+		if strings.TrimSpace(opts.CurlMode) != "" || len(curlEndpoints) > 0 || strings.TrimSpace(opts.CurlSkipReason) != "" {
+			return Run{}, fmt.Errorf("--curl, --curl-endpoint, and --curl-skip-reason are only valid when --platform web or --platform ios")
+		}
 	}
 
 	repoRoot := RepoRoot(cwd)
@@ -58,14 +99,16 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		return Run{}, err
 	}
 	now := time.Now().UTC()
-	browserRequired, iosRequired := uiRequirementsForPlatform(platform)
+	browserRequired, iosRequired, cliRequired := uiRequirementsForPlatform(platform)
 	run := Run{
 		ID:             newID("run"),
 		RepoRoot:       repoRoot,
 		RepoSlug:       repoSlug,
 		Platform:       platform,
+		Surface:        platform,
 		Feature:        strings.TrimSpace(opts.Feature),
 		BrowserURL:     strings.TrimSpace(opts.BrowserURL),
+		CLICommand:     strings.TrimSpace(opts.CLICommand),
 		CurlMode:       curlMode,
 		IOS:            IOSTarget{Scheme: strings.TrimSpace(opts.IOSScheme), BundleID: strings.TrimSpace(opts.IOSBundleID), Simulator: strings.TrimSpace(opts.IOSSimulator)},
 		CurlRequired:   curlMode == CurlModeRequired,
@@ -82,6 +125,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		Kind:            "happy-path",
 		BrowserRequired: browserRequired,
 		IOSRequired:     iosRequired,
+		CLIRequired:     cliRequired,
 		CurlRequired:    run.CurlRequired,
 	}
 	run.FailurePath = Scenario{
@@ -90,6 +134,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		Kind:            "failure-path",
 		BrowserRequired: browserRequired,
 		IOSRequired:     iosRequired,
+		CLIRequired:     cliRequired,
 		CurlRequired:    run.CurlRequired,
 	}
 	run.Scenarios = append(run.Scenarios, run.HappyPath, run.FailurePath)
@@ -343,6 +388,95 @@ func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 	return nil
 }
 
+func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
+	scenario, ok := findScenario(run, opts.ScenarioID)
+	if !ok {
+		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
+	}
+	if strings.TrimSpace(opts.SessionID) == "" {
+		return fmt.Errorf("cli evidence requires --session")
+	}
+	if strings.TrimSpace(opts.Command) == "" {
+		return fmt.Errorf("cli evidence requires --command")
+	}
+	if strings.TrimSpace(opts.TranscriptPath) == "" {
+		return fmt.Errorf("cli evidence requires --transcript")
+	}
+	if len(opts.Screenshots) == 0 {
+		return fmt.Errorf("cli evidence requires at least one --screenshot")
+	}
+
+	var artifacts []Artifact
+	for label, source := range opts.Screenshots {
+		artifact, err := store.CopyArtifact(run, SurfaceCLI, scenario.ID, label, source)
+		if err != nil {
+			return err
+		}
+		artifact.Kind = ArtifactImage
+		artifacts = append(artifacts, artifact)
+	}
+	transcriptArtifact, err := store.CopyArtifact(run, SurfaceCLI, scenario.ID, "cli-transcript", opts.TranscriptPath)
+	if err != nil {
+		return err
+	}
+	transcriptArtifact.Kind = ArtifactTranscript
+	transcriptArtifact.MediaType = "text/plain"
+	artifacts = append(artifacts, transcriptArtifact)
+
+	transcriptBytes, err := os.ReadFile(opts.TranscriptPath)
+	if err != nil {
+		return err
+	}
+	transcript := normalizeTranscript(string(transcriptBytes))
+	assertions, err := EvaluateCLIAssertions(opts.PassAssertions, opts.FailAssertions, CLIData{
+		Command:           strings.TrimSpace(opts.Command),
+		SessionID:         strings.TrimSpace(opts.SessionID),
+		Tool:              firstNonEmpty(opts.Tool, "terminal-session"),
+		ExitCode:          opts.ExitCode,
+		TranscriptPreview: transcriptPreview(transcript),
+	}, transcript, artifacts)
+	if err != nil {
+		return err
+	}
+	if len(assertions) == 0 {
+		return fmt.Errorf("cli evidence requires at least one assertion")
+	}
+
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: scenario.ID,
+		Surface:    SurfaceCLI,
+		Tier:       TierRegisteredRun,
+		CreatedAt:  time.Now().UTC(),
+		Title:      fmt.Sprintf("CLI verification for %s", scenario.Label),
+		Provenance: Provenance{
+			Mode:       "registered-session",
+			Tool:       firstNonEmpty(opts.Tool, "terminal-session"),
+			Command:    []string{strings.TrimSpace(opts.Command)},
+			SessionID:  strings.TrimSpace(opts.SessionID),
+			CWD:        run.RepoRoot,
+			RecordedBy: "proctor",
+		},
+		Assertions: assertions,
+		Artifacts:  artifacts,
+		CLI: &CLIData{
+			Command:           strings.TrimSpace(opts.Command),
+			SessionID:         strings.TrimSpace(opts.SessionID),
+			Tool:              firstNonEmpty(opts.Tool, "terminal-session"),
+			ExitCode:          opts.ExitCode,
+			TranscriptPreview: transcriptPreview(transcript),
+		},
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		return err
+	}
+	if err := writeReports(store, run); err != nil {
+		return err
+	}
+	return nil
+}
+
 func Evaluate(store *Store, run Run) (Evaluation, error) {
 	evidence, err := store.LoadEvidence(run)
 	if err != nil {
@@ -350,13 +484,14 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	}
 
 	eval := Evaluation{Complete: true}
-	hasDesktop := false
-	hasMobile := false
-	hasIOSScreenshot := false
-	switch normalizePlatform(run.Platform) {
+	platform := normalizePlatform(firstNonEmpty(run.Platform, run.Surface))
+	hasDesktop := true
+	hasMobile := true
+	hasIOSScreenshot := true
+	switch platform {
 	case PlatformIOS:
 		hasIOSScreenshot = iosVisualCoverage(store, run, evidence)
-	default:
+	case PlatformWeb:
 		hasDesktop, hasMobile = browserVisualCoverage(store, run, evidence)
 	}
 
@@ -365,6 +500,7 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 		browserEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceBrowser)
 		iosEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceIOS)
 		curlEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCurl)
+		cliEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCLI)
 
 		if scenario.BrowserRequired {
 			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, scenario, browserEvidence)
@@ -385,17 +521,23 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 				eval.Complete = false
 			}
 		}
+		if scenario.CLIRequired {
+			scenarioEval.CLIOK, scenarioEval.CLIIssues = validateCLIEvidence(store, run, cliEvidence)
+			if !scenarioEval.CLIOK {
+				eval.Complete = false
+			}
+		}
 
 		eval.ScenarioEvaluations = append(eval.ScenarioEvaluations, scenarioEval)
 	}
 
-	switch normalizePlatform(run.Platform) {
+	switch platform {
 	case PlatformIOS:
 		if !hasIOSScreenshot {
 			eval.Complete = false
 			eval.GlobalMissing = append(eval.GlobalMissing, "at least one iOS screenshot")
 		}
-	default:
+	case PlatformWeb:
 		if !hasDesktop {
 			eval.Complete = false
 			eval.GlobalMissing = append(eval.GlobalMissing, "at least one desktop screenshot")
@@ -689,7 +831,7 @@ func splitAndNormalize(value, sep string) []string {
 func parseEdgeCaseInputs(platform string, inputs []string) ([]EdgeCaseCategory, []Scenario) {
 	var categories []EdgeCaseCategory
 	var scenarios []Scenario
-	browserRequired, iosRequired := uiRequirementsForPlatform(platform)
+	browserRequired, iosRequired, cliRequired := uiRequirementsForPlatform(platform)
 	for _, category := range EdgeCaseCategoriesForPlatform(platform) {
 		entry := EdgeCaseCategory{Category: category}
 		response := ""
@@ -733,6 +875,7 @@ func parseEdgeCaseInputs(platform string, inputs []string) ([]EdgeCaseCategory, 
 				Category:        category,
 				BrowserRequired: browserRequired,
 				IOSRequired:     iosRequired,
+				CLIRequired:     cliRequired,
 				CurlRequired:    false,
 			}
 			entry.ScenarioIDs = append(entry.ScenarioIDs, scenario.ID)
@@ -809,6 +952,23 @@ func validateCurlEvidence(store *Store, run Run, items []Evidence) (bool, []stri
 	var issues []string
 	for _, item := range items {
 		issues = append(issues, curlEvidenceIssues(store, run, item)...)
+	}
+	return false, dedupeStrings(issues)
+}
+
+func validateCLIEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+	if len(items) == 0 {
+		return false, []string{"missing cli evidence"}
+	}
+	for _, item := range items {
+		issues := cliEvidenceIssues(store, run, item)
+		if len(issues) == 0 {
+			return true, nil
+		}
+	}
+	var issues []string
+	for _, item := range items {
+		issues = append(issues, cliEvidenceIssues(store, run, item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -984,6 +1144,49 @@ func curlEvidenceIssues(store *Store, run Run, item Evidence) []string {
 	return dedupeStrings(issues)
 }
 
+func cliEvidenceIssues(store *Store, run Run, item Evidence) []string {
+	var issues []string
+	if item.Tier < TierRegisteredRun {
+		issues = append(issues, fmt.Sprintf("cli evidence tier %d is below required tier %d", item.Tier, TierRegisteredRun))
+	}
+	if strings.TrimSpace(item.Provenance.SessionID) == "" {
+		issues = append(issues, "cli evidence is missing a registered session id")
+	}
+	if item.CLI == nil {
+		issues = append(issues, "cli evidence is missing parsed cli data")
+	} else {
+		if strings.TrimSpace(item.CLI.Command) == "" {
+			issues = append(issues, "cli evidence is missing a command")
+		}
+		if strings.TrimSpace(item.CLI.Tool) == "" {
+			issues = append(issues, "cli evidence is missing a tool name")
+		}
+	}
+	issues = append(issues, assertionIssues(item.Assertions, "cli")...)
+
+	hasScreenshot := false
+	hasTranscript := false
+	for _, artifact := range item.Artifacts {
+		if err := store.VerifyArtifactHash(run, artifact); err != nil {
+			issues = append(issues, fmt.Sprintf("artifact hash mismatch for %s", artifact.Label))
+			continue
+		}
+		switch artifact.Kind {
+		case ArtifactImage:
+			hasScreenshot = true
+		case ArtifactTranscript:
+			hasTranscript = true
+		}
+	}
+	if !hasScreenshot {
+		issues = append(issues, "cli evidence is missing a screenshot")
+	}
+	if !hasTranscript {
+		issues = append(issues, "cli evidence is missing a transcript")
+	}
+	return dedupeStrings(issues)
+}
+
 func assertionIssues(assertions []Assertion, surface string) []string {
 	if len(assertions) == 0 {
 		return []string{fmt.Sprintf("%s evidence has no assertions", surface)}
@@ -1038,15 +1241,30 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func normalizeTranscript(value string) string {
+	return strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+}
+
+func transcriptPreview(value string) string {
+	value = normalizeTranscript(value)
+	value = strings.ReplaceAll(value, "\n", " / ")
+	if len(value) <= 512 {
+		return value
+	}
+	return value[:512]
+}
+
 func newID(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
 }
 
-func uiRequirementsForPlatform(platform string) (bool, bool) {
+func uiRequirementsForPlatform(platform string) (bool, bool, bool) {
 	switch normalizePlatform(platform) {
 	case PlatformIOS:
-		return false, true
+		return false, true, false
+	case PlatformCLI:
+		return false, false, true
 	default:
-		return true, false
+		return true, false, false
 	}
 }

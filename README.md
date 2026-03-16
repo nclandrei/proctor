@@ -55,6 +55,10 @@ Use proctor --help to manually test it.
 
 That prompt should be enough. The agent should not need extra explanation from the human.
 
+Reading `proctor --help` is not the task. It is the entry point. The agent is
+still expected to inspect the current diff, identify the user-visible change,
+create the right contract, run the manual checks, and record real evidence.
+
 ## Quick Start
 
 ### 1. Create the Contract
@@ -134,7 +138,29 @@ proctor start \
   --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 ```
 
-### 2. Capture Real Browser Evidence
+For CLI and TUI work, create a CLI contract instead:
+
+```bash
+proctor start \
+  --platform cli \
+  --feature "magellan prompt inspection flow" \
+  --cli-command "magellan prompts inspect onboarding" \
+  --happy-path "Inspecting a known prompt shows the body and metadata in a readable terminal layout." \
+  --failure-path "Inspecting an unknown prompt exits non-zero and prints a clear error." \
+  --edge-case "invalid or malformed input=Broken prompt syntax shows a validation error without a panic" \
+  --edge-case "missing required args, files, config, or env=Missing prompt slug explains what argument is required" \
+  --edge-case "retry, rerun, and idempotency=Running the same inspect command twice gives the same result" \
+  --edge-case "long-running output, streaming, or progress state=N/A: single-shot command with immediate output" \
+  --edge-case "interrupts, cancellation, and signals=N/A: command exits immediately" \
+  --edge-case "tty, pipe, and non-interactive behavior=Piped output still renders the inspected prompt body without ANSI garbage" \
+  --edge-case "terminal layout, wrapping, and resize behavior=The inspected prompt still wraps cleanly in a narrow terminal" \
+  --edge-case "keyboard navigation and shortcut behavior=N/A: single-shot command with no in-app key handling" \
+  --edge-case "state, config, and persistence across reruns=N/A: read-only inspection command" \
+  --edge-case "stderr, exit codes, and partial failure reporting=Unknown prompt returns a non-zero exit code and prints the error on stderr" \
+  --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
+```
+
+### 2. Capture Real Evidence
 
 Proctor does not drive the browser for you. Use your own browser tooling to produce:
 
@@ -177,6 +203,16 @@ assertion such as `console_warnings = 0` when warnings should fail the run too.
 If your browser tool does not emit this exact file, that is still fine. Capture
 the real browser session data, then write a tiny `report.json` file with this
 shape and attach that to Proctor.
+
+For CLI and TUI work, Proctor expects a real terminal session.
+Preferred, not required: use a real terminal app plus `tmux` or an equivalent
+persistent multiplexer so the agent can keep one session alive, drive keyboard
+input deterministically, capture pane output, and take screenshots.
+
+- run the CLI in a real terminal session
+- capture at least one screenshot
+- capture the terminal transcript from that session
+- record the actual command you exercised
 
 ### 3. Attach Browser Evidence
 
@@ -237,7 +273,24 @@ proctor record ios \
 One simulator report can be reused for multiple scenarios if it genuinely
 proves each one.
 
-### 5. Attach HTTP Evidence When Required
+### 5. Attach Real CLI Evidence
+
+Then record the terminal evidence against the scenario:
+
+```bash
+proctor record cli \
+  --scenario happy-path \
+  --session magellan-cli-1 \
+  --command "magellan prompts inspect onboarding" \
+  --transcript /abs/path/pane.txt \
+  --screenshot terminal=/abs/path/terminal.png \
+  --exit-code 0 \
+  --assert 'output contains onboarding' \
+  --assert 'exit_code = 0' \
+  --assert 'screenshot = true'
+```
+
+### 6. Attach HTTP Evidence When Required
 
 When a scenario requires `curl`, wrap the real command:
 
@@ -253,7 +306,7 @@ proctor record curl \
     -d '{"email":"demo@example.com","password":"wrong"}'
 ```
 
-### 6. Check Coverage And Finish
+### 7. Check Coverage And Finish
 
 ```bash
 proctor status
@@ -290,6 +343,14 @@ For iOS evidence, Proctor expects:
 
 The iOS report can be synthesized from real simulator-session output. It does
 not have to come from one specific helper.
+
+For CLI evidence, Proctor expects:
+
+- a terminal session id string
+- at least one terminal screenshot across the run
+- a transcript artifact from that session
+- the actual exercised command
+- at least one passing assertion
 
 For curl evidence, Proctor expects:
 
@@ -348,6 +409,18 @@ zero-issue assertions for:
 - crashes
 - fatal logs
 
+## CLI Assertions
+
+Examples:
+
+- `output contains onboarding`
+- `output contains prompt not found`
+- `command contains magellan`
+- `session contains cli-session`
+- `tool = terminal-session`
+- `exit_code = 0`
+- `screenshot = true`
+
 ## Edge Cases Are First-Class
 
 Proctor does not accept "give me two edge cases".
@@ -383,6 +456,19 @@ iOS:
 - accessibility, dynamic type, and keyboard behavior
 - any feature-specific risks
 
+CLI:
+- invalid or malformed input
+- missing required args, files, config, or env
+- retry, rerun, and idempotency
+- long-running output, streaming, or progress state
+- interrupts, cancellation, and signals
+- tty, pipe, and non-interactive behavior
+- terminal layout, wrapping, and resize behavior
+- keyboard navigation and shortcut behavior
+- state, config, and persistence across reruns
+- stderr, exit codes, and partial failure reporting
+- any feature-specific risks
+
 ## Commands
 
 - `proctor --help`
@@ -393,6 +479,8 @@ iOS:
   Shows what still passes or fails.
 - `proctor record browser`
   Attaches browser evidence to one scenario.
+- `proctor record cli`
+  Attaches terminal evidence to one scenario.
 - `proctor record ios`
   Attaches iOS simulator evidence to one scenario.
 - `proctor record curl`
@@ -407,6 +495,7 @@ Use subcommand help for exact flags:
 ```bash
 proctor start --help
 proctor record browser --help
+proctor record cli --help
 proctor record ios --help
 proctor record curl --help
 proctor done --help
@@ -437,6 +526,7 @@ Important files:
 Current supported surfaces:
 
 - web browser evidence with desktop and mobile proof
+- CLI and TUI evidence with screenshots plus transcripts
 - iOS simulator evidence with screenshots plus simulator/app report metadata
 - risk-based `curl` evidence when backend or protocol verification matters
 - `curl` risk is modeled per scenario, with scenario-level endpoint lists and scenario-level completion gates

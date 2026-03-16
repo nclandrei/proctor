@@ -44,12 +44,16 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios)
 	edgeCoverage := edgeCoverageRows(run)
 	curlRequirements := curlRequirementRows(run)
+	runSurface := NormalizeRunSurface(run.Surface)
 
 	var md strings.Builder
 	md.WriteString(fmt.Sprintf("# %s\n\n", run.Feature))
 	md.WriteString(fmt.Sprintf("- Run ID: `%s`\n", run.ID))
-	md.WriteString(fmt.Sprintf("- Platform: `%s`\n", normalizePlatform(run.Platform)))
-	switch normalizePlatform(run.Platform) {
+	md.WriteString(fmt.Sprintf("- Platform: `%s`\n", normalizePlatform(firstNonEmpty(run.Platform, run.Surface))))
+	md.WriteString(fmt.Sprintf("- Verification surface: `%s`\n", surfaceTitle(runSurface)))
+	switch runSurface {
+	case RunSurfaceCLI:
+		md.WriteString(fmt.Sprintf("- CLI command: `%s`\n", run.CLICommand))
 	case PlatformIOS:
 		md.WriteString(fmt.Sprintf("- iOS scheme: `%s`\n", run.IOS.Scheme))
 		md.WriteString(fmt.Sprintf("- iOS bundle ID: `%s`\n", run.IOS.BundleID))
@@ -59,12 +63,14 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 	default:
 		md.WriteString(fmt.Sprintf("- Browser URL: `%s`\n", run.BrowserURL))
 	}
-	if len(curlRequirements) > 0 {
-		md.WriteString(fmt.Sprintf("- Direct HTTP verification: required for %d scenario(s)\n", len(curlRequirements)))
-	} else if strings.TrimSpace(run.CurlSkipReason) != "" {
-		md.WriteString(fmt.Sprintf("- Direct HTTP verification: skipped (%s)\n", run.CurlSkipReason))
-	} else {
-		md.WriteString("- Direct HTTP verification: skipped\n")
+	if runHasHTTPSummary(run) {
+		if len(curlRequirements) > 0 {
+			md.WriteString(fmt.Sprintf("- Direct HTTP verification: required for %d scenario(s)\n", len(curlRequirements)))
+		} else if strings.TrimSpace(run.CurlSkipReason) != "" {
+			md.WriteString(fmt.Sprintf("- Direct HTTP verification: skipped (%s)\n", run.CurlSkipReason))
+		} else {
+			md.WriteString("- Direct HTTP verification: skipped\n")
+		}
 	}
 	if len(curlRequirements) > 0 {
 		md.WriteString("- HTTP risk coverage:\n")
@@ -97,26 +103,13 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 		if scenario.Eval.Scenario.CurlRequired && len(scenario.Eval.Scenario.CurlEndpoints) > 0 {
 			md.WriteString(fmt.Sprintf("- curl contract: `%s`\n", strings.Join(scenario.Eval.Scenario.CurlEndpoints, "`, `")))
 		}
-		if scenario.Eval.EvalHasBrowser() {
-			if scenario.Eval.BrowserOK {
-				md.WriteString("- Browser: pass\n")
-			} else {
-				md.WriteString(fmt.Sprintf("- Browser: fail (%s)\n", strings.Join(scenario.Eval.BrowserIssues, ", ")))
+		for _, surface := range scenario.Eval.Scenario.RequiredSurfaces() {
+			ok, _ := scenario.Eval.SurfaceStatus(surface)
+			if ok {
+				md.WriteString(fmt.Sprintf("- %s: pass\n", strings.ToUpper(surface)))
+				continue
 			}
-		}
-		if scenario.Eval.EvalHasIOS() {
-			if scenario.Eval.IOSOK {
-				md.WriteString("- iOS: pass\n")
-			} else {
-				md.WriteString(fmt.Sprintf("- iOS: fail (%s)\n", strings.Join(scenario.Eval.IOSIssues, ", ")))
-			}
-		}
-		if scenario.Eval.Scenario.CurlRequired {
-			if scenario.Eval.CurlOK {
-				md.WriteString("- curl: pass\n")
-			} else {
-				md.WriteString(fmt.Sprintf("- curl: fail (%s)\n", strings.Join(scenario.Eval.CurlIssues, ", ")))
-			}
+			md.WriteString(fmt.Sprintf("- %s: fail (%s)\n", strings.ToUpper(surface), strings.Join(scenario.Eval.SurfaceIssues(surface), ", ")))
 		}
 
 		for _, item := range scenario.Evidence {
@@ -169,9 +162,15 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 		"reportStatus":         reportStatus,
 		"scenarioComplete":     scenarioComplete,
 		"scenarioTone":         scenarioTone,
+		"surfaceIssues":        surfaceIssues,
+		"surfaceOK":            surfaceOK,
+		"surfaceTitle":         surfaceTitle,
+		"scenarioSurfaces":     scenarioSurfaces,
 		"passedScenarioCount":  passedScenarioCount,
 		"failedScenarioCount":  failedScenarioCount,
 		"curlModeLabel":        curlModeLabel,
+		"runHasHTTPSummary":    runHasHTTPSummary,
+		"runSurfaceLabel":      runSurfaceLabel,
 		"runTargetLabel":       runTargetLabel,
 		"runTargetValue":       runTargetValue,
 	}).Parse(`<!doctype html>
@@ -609,13 +608,19 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
           <div class="summary-value"><code>{{ .Run.ID }}</code></div>
         </article>
         <article class="summary-card">
+          <div class="summary-label">Run Surface</div>
+          <div class="summary-value">{{ runSurfaceLabel .Run }}</div>
+        </article>
+        <article class="summary-card">
           <div class="summary-label">{{ runTargetLabel .Run }}</div>
           <div class="summary-value"><code>{{ runTargetValue .Run }}</code></div>
         </article>
+        {{ if runHasHTTPSummary .Run }}
         <article class="summary-card">
           <div class="summary-label">Direct HTTP Verification</div>
           <div class="summary-value">{{ curlModeLabel .Run }}</div>
         </article>
+        {{ end }}
         <article class="summary-card">
           <div class="summary-label">Scenario Count</div>
           <div class="summary-value">{{ len .Scenarios }} scenario(s)</div>
@@ -696,7 +701,8 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
       <div class="scenario-grid">
         {{ range .Scenarios }}
         <article class="scenario-card {{ if scenarioComplete .Eval }}pass{{ else }}fail{{ end }}">
-	          <div class="scenario-head">
+          {{ $eval := .Eval }}
+          <div class="scenario-head">
             <div>
               <h3>{{ .Eval.Scenario.Label }}</h3>
               <div class="scenario-meta">
@@ -705,32 +711,29 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
               </div>
             </div>
             <div class="scenario-status">
-              {{ if .Eval.EvalHasBrowser }}{{ if .Eval.BrowserOK }}<span class="surface-pill ok">browser: pass</span>{{ else }}<span class="surface-pill bad">browser: fail</span>{{ end }}{{ end }}
-              {{ if .Eval.EvalHasIOS }}{{ if .Eval.IOSOK }}<span class="surface-pill ok">ios: pass</span>{{ else }}<span class="surface-pill bad">ios: fail</span>{{ end }}{{ end }}
-              {{ if .Eval.Scenario.CurlRequired }}{{ if .Eval.CurlOK }}<span class="surface-pill ok">curl: pass</span>{{ else }}<span class="surface-pill bad">curl: fail</span>{{ end }}{{ end }}
+              {{ range scenarioSurfaces .Eval.Scenario }}
+              {{ if surfaceOK $eval . }}<span class="surface-pill ok">{{ . }}: pass</span>{{ else }}<span class="surface-pill bad">{{ . }}: fail</span>{{ end }}
+              {{ end }}
             </div>
-	          </div>
-	          {{ if and .Eval.Scenario.CurlRequired .Eval.Scenario.CurlEndpoints }}
-	          <div class="status-note">curl contract: {{ range $index, $endpoint := .Eval.Scenario.CurlEndpoints }}{{ if $index }}, {{ end }}<code>{{ $endpoint }}</code>{{ end }}</div>
-	          {{ end }}
-	          {{ if and .Eval.EvalHasBrowser (not .Eval.BrowserOK) }}
-	          <ul class="gap-list">{{ range .Eval.BrowserIssues }}<li>{{ . }}</li>{{ end }}</ul>
+          </div>
+          {{ if and .Eval.Scenario.CurlRequired .Eval.Scenario.CurlEndpoints }}
+          <div class="status-note">curl contract: {{ range $index, $endpoint := .Eval.Scenario.CurlEndpoints }}{{ if $index }}, {{ end }}<code>{{ $endpoint }}</code>{{ end }}</div>
           {{ end }}
-          {{ if and .Eval.EvalHasIOS (not .Eval.IOSOK) }}
-          <ul class="gap-list">{{ range .Eval.IOSIssues }}<li>{{ . }}</li>{{ end }}</ul>
+          {{ range scenarioSurfaces .Eval.Scenario }}
+          {{ if not (surfaceOK $eval .) }}
+          <ul class="gap-list">{{ range surfaceIssues $eval . }}<li>{{ . }}</li>{{ end }}</ul>
           {{ end }}
-          {{ if and .Eval.Scenario.CurlRequired (not .Eval.CurlOK) }}
-          <ul class="gap-list">{{ range .Eval.CurlIssues }}<li>{{ . }}</li>{{ end }}</ul>
           {{ end }}
           <div class="evidence-stack">
             {{ range .Evidence }}
             <section class="evidence-block">
-              <h4>{{ title .Surface }} evidence</h4>
-              {{ if .Summary }}
+	              <h4>{{ surfaceTitle .Surface }} evidence</h4>
+	              {{ $summary := .Summary }}
+	              {{ if $summary }}
               <ul class="summary-list">
-                {{ range .Summary }}
-                <li>{{ . }}</li>
-                {{ end }}
+	                {{ range $summary }}
+	                <li>{{ . }}</li>
+	                {{ end }}
               </ul>
               {{ end }}
               <ul class="assertion-list">
@@ -842,14 +845,6 @@ func groupEvidenceByScenario(eval Evaluation, evidence []Evidence) []scenarioRep
 		reports = append(reports, report)
 	}
 	return reports
-}
-
-func (s ScenarioEvaluation) EvalHasBrowser() bool {
-	return s.Scenario.BrowserRequired
-}
-
-func (s ScenarioEvaluation) EvalHasIOS() bool {
-	return s.Scenario.IOSRequired
 }
 
 type edgeCoverageRow struct {
@@ -986,6 +981,8 @@ func evidenceSummaryLines(item Evidence) []string {
 		return iosSummaryLines(item)
 	case SurfaceCurl:
 		return curlSummaryLines(item)
+	case SurfaceCLI:
+		return cliSummaryLines(item)
 	default:
 		return nil
 	}
@@ -1045,6 +1042,24 @@ func curlSummaryLines(item Evidence) []string {
 	return lines
 }
 
+func cliSummaryLines(item Evidence) []string {
+	if item.CLI == nil {
+		return nil
+	}
+	lines := []string{
+		fmt.Sprintf("Tool: `%s`", item.CLI.Tool),
+		fmt.Sprintf("Session: `%s`", item.CLI.SessionID),
+		fmt.Sprintf("Command: `%s`", item.CLI.Command),
+	}
+	if item.CLI.ExitCode != nil {
+		lines = append(lines, fmt.Sprintf("Exit code: `%d`", *item.CLI.ExitCode))
+	}
+	if strings.TrimSpace(item.CLI.TranscriptPreview) != "" {
+		lines = append(lines, fmt.Sprintf("Transcript preview: `%s`", item.CLI.TranscriptPreview))
+	}
+	return lines
+}
+
 func reportStatus(eval Evaluation) string {
 	if eval.Complete {
 		return "PASS"
@@ -1053,10 +1068,13 @@ func reportStatus(eval Evaluation) string {
 }
 
 func scenarioComplete(eval ScenarioEvaluation) bool {
-	browserOK := !eval.Scenario.BrowserRequired || eval.BrowserOK
-	iosOK := !eval.Scenario.IOSRequired || eval.IOSOK
-	curlOK := !eval.Scenario.CurlRequired || eval.CurlOK
-	return browserOK && iosOK && curlOK
+	for _, surface := range eval.Scenario.RequiredSurfaces() {
+		ok, exists := eval.SurfaceStatus(surface)
+		if exists && !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func curlModeLabel(run Run) string {
@@ -1077,31 +1095,6 @@ func scenarioTone(eval ScenarioEvaluation) string {
 	return "bad"
 }
 
-func runTargetLabel(run Run) string {
-	switch normalizePlatform(run.Platform) {
-	case PlatformIOS:
-		return "iOS Target"
-	default:
-		return "Browser URL"
-	}
-}
-
-func runTargetValue(run Run) string {
-	switch normalizePlatform(run.Platform) {
-	case PlatformIOS:
-		target := firstNonEmpty(run.IOS.Scheme, run.IOS.BundleID)
-		if strings.TrimSpace(run.IOS.Scheme) != "" && strings.TrimSpace(run.IOS.BundleID) != "" {
-			target = run.IOS.Scheme + " / " + run.IOS.BundleID
-		}
-		if strings.TrimSpace(run.IOS.Simulator) != "" {
-			target = target + " @ " + run.IOS.Simulator
-		}
-		return strings.TrimSpace(target)
-	default:
-		return run.BrowserURL
-	}
-}
-
 func passedScenarioCount(items []scenarioHTMLReport) int {
 	count := 0
 	for _, item := range items {
@@ -1120,4 +1113,65 @@ func failedScenarioCount(items []scenarioHTMLReport) int {
 		}
 	}
 	return count
+}
+
+func scenarioSurfaces(scenario Scenario) []string {
+	return scenario.RequiredSurfaces()
+}
+
+func surfaceOK(eval ScenarioEvaluation, surface string) bool {
+	ok, _ := eval.SurfaceStatus(surface)
+	return ok
+}
+
+func surfaceIssues(eval ScenarioEvaluation, surface string) []string {
+	return eval.SurfaceIssues(surface)
+}
+
+func surfaceTitle(surface string) string {
+	switch surface {
+	case SurfaceIOS:
+		return "iOS"
+	case SurfaceCLI:
+		return "CLI"
+	default:
+		return strings.Title(surface)
+	}
+}
+
+func runHasHTTPSummary(run Run) bool {
+	return normalizePlatform(firstNonEmpty(run.Platform, run.Surface)) != PlatformCLI
+}
+
+func runSurfaceLabel(run Run) string {
+	return surfaceTitle(normalizePlatform(firstNonEmpty(run.Platform, run.Surface)))
+}
+
+func runTargetLabel(run Run) string {
+	switch normalizePlatform(firstNonEmpty(run.Platform, run.Surface)) {
+	case PlatformIOS:
+		return "iOS Target"
+	case PlatformCLI:
+		return "CLI Command"
+	default:
+		return "Browser URL"
+	}
+}
+
+func runTargetValue(run Run) string {
+	switch normalizePlatform(firstNonEmpty(run.Platform, run.Surface)) {
+	case PlatformIOS:
+		target := firstNonEmpty(run.IOS.Scheme, run.IOS.BundleID)
+		if strings.TrimSpace(run.IOS.Scheme) != "" && strings.TrimSpace(run.IOS.BundleID) != "" {
+			target = run.IOS.Scheme + " / " + run.IOS.BundleID
+		}
+		if strings.TrimSpace(run.IOS.Simulator) != "" {
+			target = target + " @ " + run.IOS.Simulator
+		}
+		return strings.TrimSpace(target)
+	case PlatformCLI:
+		return run.CLICommand
+	default:
+		return run.BrowserURL
+	}
 }
