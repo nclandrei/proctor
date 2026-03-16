@@ -152,6 +152,105 @@ func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {
 	}
 }
 
+func TestBrowserWarningsAreRecordedButNotImplicitlyBlocking(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+		},
+		PassAssertions: []string{
+			"final_url contains /dashboard",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	evidence, err := store.LoadEvidence(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evidence[0].Browser.Desktop.ConsoleWarnings; got != 2 {
+		t.Fatalf("expected browser evidence to record console warnings, got %d", got)
+	}
+	for _, assertion := range evidence[0].Assertions {
+		if assertion.Description == "console_warnings = 0" || assertion.Description == "desktop.console_warnings = 0" {
+			t.Fatalf("expected default browser assertions to leave warnings advisory, got %#v", assertion)
+		}
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eval.ScenarioEvaluations[0].BrowserOK {
+		t.Fatalf("expected warnings alone to stay non-blocking by default, got %#v", eval.ScenarioEvaluations[0].BrowserIssues)
+	}
+}
+
+func TestBrowserWarningsCanBeMadeBlockingWithExplicitAssertion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+		},
+		PassAssertions: []string{
+			"final_url contains /dashboard",
+			"console_warnings = 0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.ScenarioEvaluations[0].BrowserOK {
+		t.Fatalf("expected explicit warning assertion to block the scenario")
+	}
+	if !containsSubstring(eval.ScenarioEvaluations[0].BrowserIssues, "assertion failed: console_warnings = 0") {
+		t.Fatalf("expected warning assertion failure, got %#v", eval.ScenarioEvaluations[0].BrowserIssues)
+	}
+}
+
 func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
@@ -316,6 +415,57 @@ func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
 	}
 	if eval.Complete {
 		t.Fatalf("expected evaluation to remain incomplete")
+	}
+}
+
+func TestEvaluateRequiresGlobalMobileScreenshotCoverage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, desktopCoverageOnlyStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "desktop-only-report.json", sampleDesktopOnlyBrowserReport("http://127.0.0.1:3000/dashboard"))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+
+	for _, scenarioID := range []string{"happy-path", "failure-path"} {
+		if err := RecordBrowser(store, run, BrowserRecordOptions{
+			ScenarioID: scenarioID,
+			SessionID:  "browser-1",
+			ReportPath: report,
+			Screenshots: map[string]string{
+				"desktop-success": desktopShot,
+			},
+			PassAssertions: []string{
+				"final_url contains /dashboard",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.Complete {
+		t.Fatalf("expected evaluation to fail without a mobile screenshot")
+	}
+	for _, scenarioEval := range eval.ScenarioEvaluations {
+		if !scenarioEval.BrowserOK {
+			t.Fatalf("expected scenario %s to pass browser validation so the remaining failure is global coverage, got %#v", scenarioEval.Scenario.ID, scenarioEval.BrowserIssues)
+		}
+	}
+	if !containsSubstring(eval.GlobalMissing, "at least one mobile screenshot") {
+		t.Fatalf("expected global missing coverage to require a mobile screenshot, got %#v", eval.GlobalMissing)
 	}
 }
 
@@ -716,14 +866,34 @@ func sampleStartOptions() StartOptions {
 	}
 }
 
+func desktopCoverageOnlyStartOptions() StartOptions {
+	inputs := make([]string, 0, len(EdgeCaseCategories))
+	for _, category := range EdgeCaseCategories {
+		inputs = append(inputs, category+"=N/A: covered by this test")
+	}
+	return StartOptions{
+		Feature:        "desktop-only coverage test",
+		BrowserURL:     "http://127.0.0.1:3000/dashboard",
+		CurlMode:       "skip",
+		CurlSkipReason: "No backend coverage needed for this test",
+		HappyPath:      "happy path stays on dashboard",
+		FailurePath:    "failure path also stays on dashboard for this test",
+		EdgeCaseInputs: inputs,
+	}
+}
+
 func sampleBrowserReport(finalURL string, consoleErrors, pageErrors, failedRequests, httpErrors int) string {
+	return sampleBrowserReportWithWarnings(finalURL, consoleErrors, 0, pageErrors, failedRequests, httpErrors)
+}
+
+func sampleBrowserReportWithWarnings(finalURL string, consoleErrors, consoleWarnings, pageErrors, failedRequests, httpErrors int) string {
 	return `{
   "desktop": {
     "title": "Login",
     "finalUrl": "` + finalURL + `",
     "issues": {
       "consoleErrors": ` + itoa(consoleErrors) + `,
-      "consoleWarnings": 0,
+      "consoleWarnings": ` + itoa(consoleWarnings) + `,
       "pageErrors": ` + itoa(pageErrors) + `,
       "failedRequests": ` + itoa(failedRequests) + `,
       "httpErrors": ` + itoa(httpErrors) + `
@@ -731,6 +901,22 @@ func sampleBrowserReport(finalURL string, consoleErrors, pageErrors, failedReque
   },
   "mobile": {
     "title": "Login",
+    "finalUrl": "` + finalURL + `",
+    "issues": {
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "pageErrors": 0,
+      "failedRequests": 0,
+      "httpErrors": 0
+    }
+  }
+}`
+}
+
+func sampleDesktopOnlyBrowserReport(finalURL string) string {
+	return `{
+  "desktop": {
+    "title": "Dashboard",
     "finalUrl": "` + finalURL + `",
     "issues": {
       "consoleErrors": 0,

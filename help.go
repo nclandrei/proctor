@@ -174,13 +174,16 @@ Typical web workflow:
 What counts as browser evidence:
   - a session id string for the browser run
   - a desktop screenshot
+  - a mobile screenshot
   - a report JSON artifact
-  - a mobile screenshot when mobile or responsive proof matters
   - assertions tied to the scenario
 
 The report JSON does not need to come from one specific helper. If your browser
 tool gives you the final URL and issue counts separately, write a small
 report.json file that matches the documented shape and attach that.
+
+For web runs, mobile proof is mandatory. Proctor requires at least one desktop
+and at least one mobile screenshot somewhere in the recorded browser evidence.
 
 The browser report only needs a small shape:
   {
@@ -202,12 +205,12 @@ The browser report only needs a small shape:
         "pageErrors": 0,
         "failedRequests": 0,
         "httpErrors": 0
+      }
+    }
   }
-}
 
 If your browser tool does not emit this exact file, you can still use Proctor:
 capture the real browser data, then write a tiny JSON file with these fields.
-  }
 
 Use subcommand help for exact flags:
   proctor start --help
@@ -337,8 +340,8 @@ Usage:
 Required:
   --scenario ID              Scenario id from contract.md or proctor status
   --session SESSION          Stable browser run label or session id string
-  --report PATH              JSON report with desktop final URL and issue counts
-  --screenshot LABEL=PATH    At least one screenshot; use desktop=... and mobile=...
+  --report PATH              JSON report with desktop and mobile final URL and issue counts
+  --screenshot LABEL=PATH    At least one screenshot; every web run still needs desktop and mobile coverage overall
   --assert TEXT              At least one passing assertion
 
 Optional:
@@ -349,6 +352,7 @@ Supported browser assertions:
   final_url contains /dashboard
   final_url = http://127.0.0.1:3000/login
   console_errors = 0
+  console_warnings = 0
   failed_requests = 0
   http_errors = 1
   desktop_screenshot = true
@@ -375,12 +379,12 @@ Expected report JSON shape:
         "pageErrors": 0,
         "failedRequests": 0,
         "httpErrors": 0
+      }
+    }
   }
-}
 
 The JSON can be synthesized from real browser-session output. It does not need
 to be emitted by one specific browser helper.
-  }
 
 Happy-path example:
   proctor record browser \
@@ -395,7 +399,9 @@ Happy-path example:
 
 Notes:
   - one report can be reused for multiple scenarios if it genuinely proves each one
-  - Proctor will also add implicit zero-issues assertions for console, page, network, and HTTP failures unless you explicitly override them
+  - every web run must record at least one desktop screenshot and at least one mobile screenshot before proctor done can pass
+  - implicit zero-issues assertions only cover console errors, page errors, failed requests, and HTTP errors
+  - console warnings are recorded in the report but stay non-blocking unless you assert them explicitly
 `
 }
 
@@ -462,7 +468,7 @@ Usage:
 Passes only when:
   - every required scenario has valid evidence
   - browser scenarios have trusted browser evidence
-  - browser evidence includes screenshots
+  - the run includes both desktop and mobile screenshot coverage
   - required assertions pass
   - artifact hashes still match
 

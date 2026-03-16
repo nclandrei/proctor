@@ -8,7 +8,10 @@ import (
 	"strings"
 )
 
-var defaultBrowserHealthChecks = []string{
+// Browser reports keep warnings for review, but the default completion gate only
+// blocks on signals we treat as functional breakage. Teams can opt into stricter
+// warning handling with explicit assertions such as "console_warnings = 0".
+var defaultBlockingBrowserHealthChecks = []string{
 	"console_errors",
 	"page_errors",
 	"failed_requests",
@@ -298,7 +301,7 @@ func coveredBrowserKeys(expressions, failingExpressions []string) map[string]boo
 func implicitBrowserAssertions(covered map[string]bool, data BrowserData) []Assertion {
 	var assertions []Assertion
 	appendDevice := func(prefix string) {
-		for _, metric := range defaultBrowserHealthChecks {
+		for _, metric := range defaultBlockingBrowserHealthChecks {
 			key := metric
 			if prefix != "" {
 				key = prefix + "." + metric

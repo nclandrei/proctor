@@ -108,8 +108,8 @@ proctor start \
 Proctor does not drive the browser for you. Use your own browser tooling to produce:
 
 - a desktop screenshot
-- a mobile screenshot when mobile or responsive proof matters
-- a `report.json` file with final URL and issue counts
+- a mobile screenshot
+- a `report.json` file with desktop and mobile final URL and issue counts
 
 Proctor only needs a small report shape:
 
@@ -133,14 +133,19 @@ Proctor only needs a small report shape:
       "pageErrors": 0,
       "failedRequests": 0,
       "httpErrors": 0
+    }
+  }
 }
-}
+```
+
+`consoleWarnings` is part of the browser report schema so the run keeps the full
+browser-health picture. By default, though, Proctor only blocks completion on
+console errors, page errors, failed requests, and HTTP errors. Add an explicit
+assertion such as `console_warnings = 0` when warnings should fail the run too.
 
 If your browser tool does not emit this exact file, that is still fine. Capture
 the real browser session data, then write a tiny `report.json` file with this
 shape and attach that to Proctor.
-}
-```
 
 ### 3. Attach Browser Evidence
 
@@ -193,12 +198,16 @@ Freehand notes do not count.
 For browser evidence, Proctor expects:
 
 - a session id string
-- at least one screenshot
+- desktop and mobile screenshots across the run
 - a report JSON artifact
 - at least one passing assertion
 
 The report JSON can be synthesized from real browser-session output. It does
 not have to come from one specific browser helper.
+
+For web runs, mobile proof is mandatory. Even when the primary scenario is
+desktop-first, `proctor done` still requires at least one desktop screenshot and
+at least one mobile screenshot somewhere in the recorded browser evidence.
 
 For curl evidence, Proctor expects:
 
@@ -215,20 +224,23 @@ Examples:
 - `final_url contains /dashboard`
 - `final_url = http://127.0.0.1:3000/login`
 - `console_errors = 0`
+- `console_warnings = 0`
 - `failed_requests = 0`
 - `http_errors = 1`
 - `desktop_screenshot = true`
 - `mobile_screenshot = true`
 - `mobile.final_url contains /login`
 
-If you do not explicitly assert browser health counts, Proctor adds implicit zero-issue assertions for:
+If you do not explicitly assert browser health counts, Proctor adds implicit zero-issue assertions for the blocking browser-health metrics:
 
 - console errors
 - page errors
 - failed requests
 - HTTP errors
 
-That means the default policy is "clean browser run unless you explicitly say otherwise".
+Console warnings are deliberately excluded from that default gate. Proctor still
+records `consoleWarnings` in the report so you can inspect them later or make
+them blocking with an explicit assertion such as `console_warnings = 0`.
 
 ## Edge Cases Are First-Class
 

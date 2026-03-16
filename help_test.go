@@ -19,6 +19,9 @@ func TestCommandHelpSupportsNestedSubcommandsWithoutActiveRun(t *testing.T) {
 	if !strings.Contains(text, "--report /abs/path/report.json") {
 		t.Fatalf("expected browser help to include report flag example, got:\n%s", text)
 	}
+	if !strings.Contains(text, "console_warnings = 0") {
+		t.Fatalf("expected browser help to include console warning assertions, got:\n%s", text)
+	}
 }
 
 func TestHelpCommandSupportsNestedTopics(t *testing.T) {
@@ -54,5 +57,34 @@ func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("expected help to mention %q, got:\n%s", needle, text)
 		}
+	}
+}
+
+func TestRootHelpMentionsMandatoryMobileCoverage(t *testing.T) {
+	text, ok, err := commandHelp([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "mobile proof is mandatory") {
+		t.Fatalf("expected root help to describe mandatory mobile coverage, got:\n%s", text)
+	}
+}
+
+func TestRecordBrowserHelpMentionsRunWideMobileRequirement(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "browser", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "every web run must record at least one desktop screenshot and at least one mobile screenshot") {
+		t.Fatalf("expected record browser help to describe run-wide mobile coverage, got:\n%s", text)
+	}
+	if !strings.Contains(text, "console warnings are recorded in the report but stay non-blocking unless you assert them explicitly") {
+		t.Fatalf("expected record browser help to explain the warning policy, got:\n%s", text)
 	}
 }
