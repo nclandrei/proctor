@@ -13,6 +13,8 @@ The current implementation target is:
 
 iOS and CLI should be kept in mind when shaping interfaces, but they are not implemented yet.
 
+In the current contract model, `curl` risk is decided per scenario. Endpoints are attached to the scenarios that need direct HTTP verification; they are not a separate completion unit by themselves.
+
 ## Working Rules
 
 - Keep runtime artifacts out of the repo. Proctor writes runs under `~/.proctor` by default.

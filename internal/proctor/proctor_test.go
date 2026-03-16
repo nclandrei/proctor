@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateRunWritesExpectedFiles(t *testing.T) {
@@ -83,7 +84,7 @@ func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
 		HappyPath:   "happy",
 		FailurePath: "failure",
 	})
-	if err == nil || !strings.Contains(err.Error(), "--curl must be either required or skip") {
+	if err == nil || !strings.Contains(err.Error(), "--curl must be one of required, scenario, or skip") {
 		t.Fatalf("expected explicit curl mode validation, got %v", err)
 	}
 
@@ -97,6 +98,206 @@ func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "--curl-skip-reason is required when --curl skip") {
 		t.Fatalf("expected curl skip reason validation, got %v", err)
+	}
+}
+
+func TestCreateRunSupportsScenarioLevelCurlRequirements(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := CreateRun(store, repo, StartOptions{
+		Feature:    "scenario curl plan",
+		BrowserURL: "http://127.0.0.1:3000/login",
+		CurlMode:   "scenario",
+		CurlEndpoints: []string{
+			"happy-path=POST /api/login",
+			"already signed-in users are redirected away from /login=GET /api/session",
+		},
+		HappyPath:   "valid login goes to dashboard",
+		FailurePath: "invalid password shows error",
+		EdgeCaseInputs: []string{
+			"validation and malformed input=bad email shows validation",
+			"empty or missing input=n/a: covered elsewhere",
+			"retry or double-submit=double submit is ignored",
+			"loading, latency, and race conditions=n/a: not relevant",
+			"network or server failure=n/a: not relevant",
+			"auth and session state=already signed-in users are redirected away from /login",
+			"refresh, back-navigation, and state persistence=n/a: not relevant",
+			"mobile or responsive behavior=n/a: not relevant",
+			"accessibility and keyboard behavior=n/a: not relevant",
+			"any feature-specific risks=n/a: not relevant",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scenarios := map[string]Scenario{}
+	for _, scenario := range run.Scenarios {
+		scenarios[scenario.ID] = scenario
+	}
+
+	if !scenarios["happy-path"].CurlRequired {
+		t.Fatalf("expected happy-path to require curl")
+	}
+	if got := scenarios["happy-path"].CurlEndpoints; len(got) != 1 || got[0] != "POST /api/login" {
+		t.Fatalf("expected happy-path curl endpoints, got %#v", got)
+	}
+	if !scenarios["auth-and-session-state-already-signed-in-users-are-redirected-away-from-login"].CurlRequired {
+		t.Fatalf("expected auth/session edge case to require curl")
+	}
+	if got := scenarios["auth-and-session-state-already-signed-in-users-are-redirected-away-from-login"].CurlEndpoints; len(got) != 1 || got[0] != "GET /api/session" {
+		t.Fatalf("expected auth/session curl endpoints, got %#v", got)
+	}
+	if scenarios["failure-path"].CurlRequired {
+		t.Fatalf("expected failure-path to remain browser-only when not listed in the curl plan")
+	}
+	if scenarios["validation-and-malformed-input-bad-email-shows-validation"].CurlRequired {
+		t.Fatalf("expected unrelated edge case to remain browser-only when not listed in the curl plan")
+	}
+}
+
+func TestEvaluateRequiresCurlForScenarioModeEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := CreateRun(store, repo, StartOptions{
+		Feature:    "scenario curl gating",
+		BrowserURL: "http://127.0.0.1:3000/login",
+		CurlMode:   "scenario",
+		CurlEndpoints: []string{
+			"already signed-in users are redirected away from /login=GET /api/session",
+		},
+		HappyPath:   "valid login goes to dashboard",
+		FailurePath: "invalid password shows error",
+		EdgeCaseInputs: []string{
+			"validation and malformed input=bad email shows validation",
+			"empty or missing input=n/a: covered elsewhere",
+			"retry or double-submit=double submit is ignored",
+			"loading, latency, and race conditions=n/a: not relevant",
+			"network or server failure=n/a: not relevant",
+			"auth and session state=already signed-in users are redirected away from /login",
+			"refresh, back-navigation, and state persistence=n/a: not relevant",
+			"mobile or responsive behavior=n/a: not relevant",
+			"accessibility and keyboard behavior=n/a: not relevant",
+			"any feature-specific risks=n/a: not relevant",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	for _, scenario := range run.Scenarios {
+		if err := RecordBrowser(store, run, BrowserRecordOptions{
+			ScenarioID: scenario.ID,
+			SessionID:  "browser-1",
+			ReportPath: report,
+			Screenshots: map[string]string{
+				"desktop-success": desktopShot,
+			},
+			PassAssertions: []string{
+				"console_errors = 0",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var authScenario ScenarioEvaluation
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.ID == "auth-and-session-state-already-signed-in-users-are-redirected-away-from-login" {
+			authScenario = item
+			break
+		}
+	}
+	if authScenario.CurlOK {
+		t.Fatalf("expected auth/session scenario to fail without curl evidence")
+	}
+	if !containsSubstring(authScenario.CurlIssues, "missing curl evidence") {
+		t.Fatalf("expected missing curl evidence issue, got %#v", authScenario.CurlIssues)
+	}
+	if eval.Complete {
+		t.Fatalf("expected run to remain incomplete while required edge-case curl is missing")
+	}
+}
+
+func TestLoadRunNormalizesLegacyRunWideCurlRequirement(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoSlug, err := RepoSlug(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := Run{
+		ID:            "run-legacy",
+		RepoSlug:      repoSlug,
+		RepoRoot:      repo,
+		Feature:       "legacy curl",
+		BrowserURL:    "http://127.0.0.1:3000/login",
+		CurlRequired:  true,
+		CurlEndpoints: []string{"POST /api/login"},
+		HappyPath:     Scenario{ID: "happy-path", Label: "happy", Kind: "happy-path", BrowserRequired: true},
+		FailurePath:   Scenario{ID: "failure-path", Label: "failure", Kind: "failure-path", BrowserRequired: true},
+		Scenarios:     []Scenario{{ID: "happy-path", Label: "happy", Kind: "happy-path", BrowserRequired: true}, {ID: "failure-path", Label: "failure", Kind: "failure-path", BrowserRequired: true}},
+		Status:        StatusInProgress,
+		CreatedAt:     mustParseTime(t, "2026-03-16T10:00:00Z"),
+		UpdatedAt:     mustParseTime(t, "2026-03-16T10:00:00Z"),
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetActiveRun(run); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := store.LoadRun(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if loaded.CurlMode != CurlModeRequired {
+		t.Fatalf("expected legacy run to normalize to required mode, got %q", loaded.CurlMode)
+	}
+	for _, scenarioID := range []string{"happy-path", "failure-path"} {
+		scenario, ok := findScenario(loaded, scenarioID)
+		if !ok {
+			t.Fatalf("expected scenario %s in loaded run", scenarioID)
+		}
+		if !scenario.CurlRequired {
+			t.Fatalf("expected scenario %s to inherit legacy curl requirement", scenarioID)
+		}
+		if got := scenario.CurlEndpoints; len(got) != 1 || got[0] != "POST /api/login" {
+			t.Fatalf("expected scenario %s to inherit legacy endpoint, got %#v", scenarioID, got)
+		}
 	}
 }
 
@@ -931,6 +1132,15 @@ func sampleDesktopOnlyBrowserReport(finalURL string) string {
 
 func itoa(value int) string {
 	return strconv.Itoa(value)
+}
+
+func mustParseTime(t *testing.T, value string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }
 
 func initGitRepo(t *testing.T, repo, remote string) {

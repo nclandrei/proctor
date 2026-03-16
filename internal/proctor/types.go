@@ -6,6 +6,10 @@ const (
 	SurfaceBrowser = "browser"
 	SurfaceCurl    = "curl"
 
+	CurlModeRequired = "required"
+	CurlModeScenario = "scenario"
+	CurlModeSkip     = "skip"
+
 	TierWrappedCommand = 2
 	TierRegisteredRun  = 3
 	StatusInProgress   = "in_progress"
@@ -41,6 +45,7 @@ type Run struct {
 	RepoRoot           string             `json:"repo_root"`
 	Feature            string             `json:"feature"`
 	BrowserURL         string             `json:"browser_url"`
+	CurlMode           string             `json:"curl_mode,omitempty"`
 	CurlRequired       bool               `json:"curl_required"`
 	CurlEndpoints      []string           `json:"curl_endpoints,omitempty"`
 	CurlSkipReason     string             `json:"curl_skip_reason,omitempty"`
@@ -54,12 +59,13 @@ type Run struct {
 }
 
 type Scenario struct {
-	ID              string `json:"id"`
-	Label           string `json:"label"`
-	Kind            string `json:"kind"`
-	Category        string `json:"category,omitempty"`
-	BrowserRequired bool   `json:"browser_required"`
-	CurlRequired    bool   `json:"curl_required"`
+	ID              string   `json:"id"`
+	Label           string   `json:"label"`
+	Kind            string   `json:"kind"`
+	Category        string   `json:"category,omitempty"`
+	BrowserRequired bool     `json:"browser_required"`
+	CurlRequired    bool     `json:"curl_required"`
+	CurlEndpoints   []string `json:"curl_endpoints,omitempty"`
 }
 
 type EdgeCaseCategory struct {

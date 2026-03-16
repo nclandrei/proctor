@@ -15,20 +15,26 @@ type scenarioReport struct {
 func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, string, error) {
 	scenarios := groupEvidenceByScenario(eval, evidence)
 	edgeCoverage := edgeCoverageRows(run)
+	curlRequirements := curlRequirementRows(run)
 
 	var md strings.Builder
 	md.WriteString(fmt.Sprintf("# %s\n\n", run.Feature))
 	md.WriteString(fmt.Sprintf("- Run ID: `%s`\n", run.ID))
 	md.WriteString(fmt.Sprintf("- Browser URL: `%s`\n", run.BrowserURL))
-	if run.CurlRequired {
-		md.WriteString("- Direct HTTP verification: required\n")
-	} else {
+	if len(curlRequirements) > 0 {
+		md.WriteString(fmt.Sprintf("- Direct HTTP verification: required for %d scenario(s)\n", len(curlRequirements)))
+	} else if strings.TrimSpace(run.CurlSkipReason) != "" {
 		md.WriteString(fmt.Sprintf("- Direct HTTP verification: skipped (%s)\n", run.CurlSkipReason))
+	} else {
+		md.WriteString("- Direct HTTP verification: skipped\n")
 	}
-	if len(run.CurlEndpoints) > 0 {
-		md.WriteString("- Endpoints:\n")
-		for _, endpoint := range run.CurlEndpoints {
-			md.WriteString(fmt.Sprintf("  - `%s`\n", endpoint))
+	if len(curlRequirements) > 0 {
+		md.WriteString("- HTTP risk coverage:\n")
+		for _, item := range curlRequirements {
+			md.WriteString(fmt.Sprintf("  - %s (`%s`)\n", item.Label, item.ID))
+			for _, endpoint := range item.Endpoints {
+				md.WriteString(fmt.Sprintf("    - `%s`\n", endpoint))
+			}
 		}
 	}
 	if len(edgeCoverage) > 0 {
@@ -50,6 +56,9 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 	for _, scenario := range scenarios {
 		md.WriteString(fmt.Sprintf("### %s\n\n", scenario.Eval.Scenario.Label))
 		md.WriteString(fmt.Sprintf("- Scenario ID: `%s`\n", scenario.Eval.Scenario.ID))
+		if scenario.Eval.Scenario.CurlRequired && len(scenario.Eval.Scenario.CurlEndpoints) > 0 {
+			md.WriteString(fmt.Sprintf("- curl contract: `%s`\n", strings.Join(scenario.Eval.Scenario.CurlEndpoints, "`, `")))
+		}
 		if scenario.Eval.EvalHasBrowser() {
 			if scenario.Eval.BrowserOK {
 				md.WriteString("- Browser: pass\n")
@@ -103,6 +112,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 		Eval         Evaluation
 		Scenarios    []scenarioReport
 		EdgeCoverage []edgeCoverageRow
+		CurlCoverage []curlRequirementRow
 	}
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"join":                 strings.Join,
@@ -445,12 +455,22 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
           {{ end }}
         </div>
       </section>
-      {{ if .Run.CurlEndpoints }}
-      <div class="section" style="margin-top: 20px;">
-        <div class="summary-label">Endpoints</div>
-        <ul class="summary-list">{{ range .Run.CurlEndpoints }}<li><code>{{ . }}</code></li>{{ end }}</ul>
-      </div>
-      {{ end }}
+	      {{ if .CurlCoverage }}
+	      <div class="section" style="margin-top: 20px;">
+	        <div class="summary-label">HTTP Risk Coverage</div>
+	        <ul class="summary-list">
+	          {{ range .CurlCoverage }}
+	          <li>
+	            <strong>{{ .Label }}</strong>
+	            <span class="inline-detail"><code>{{ .ID }}</code></span>
+	            {{ if .Endpoints }}
+	            <span class="inline-detail">{{ range $index, $endpoint := .Endpoints }}{{ if $index }}, {{ end }}<code>{{ $endpoint }}</code>{{ end }}</span>
+	            {{ end }}
+	          </li>
+	          {{ end }}
+	        </ul>
+	      </div>
+	      {{ end }}
     </section>
 
     {{ if .EdgeCoverage }}
@@ -487,7 +507,7 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
       <div class="scenario-grid">
         {{ range .Scenarios }}
         <article class="scenario-card {{ if scenarioComplete .Eval }}pass{{ else }}fail{{ end }}">
-          <div class="scenario-head">
+	          <div class="scenario-head">
             <div>
               <h3>{{ .Eval.Scenario.Label }}</h3>
               <div class="scenario-meta">
@@ -499,9 +519,12 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
               {{ if .Eval.EvalHasBrowser }}{{ if .Eval.BrowserOK }}<span class="surface-pill ok">browser: pass</span>{{ else }}<span class="surface-pill bad">browser: fail</span>{{ end }}{{ end }}
               {{ if .Eval.Scenario.CurlRequired }}{{ if .Eval.CurlOK }}<span class="surface-pill ok">curl: pass</span>{{ else }}<span class="surface-pill bad">curl: fail</span>{{ end }}{{ end }}
             </div>
-          </div>
-          {{ if and .Eval.EvalHasBrowser (not .Eval.BrowserOK) }}
-          <ul class="gap-list">{{ range .Eval.BrowserIssues }}<li>{{ . }}</li>{{ end }}</ul>
+	          </div>
+	          {{ if and .Eval.Scenario.CurlRequired .Eval.Scenario.CurlEndpoints }}
+	          <div class="status-note">curl contract: {{ range $index, $endpoint := .Eval.Scenario.CurlEndpoints }}{{ if $index }}, {{ end }}<code>{{ $endpoint }}</code>{{ end }}</div>
+	          {{ end }}
+	          {{ if and .Eval.EvalHasBrowser (not .Eval.BrowserOK) }}
+	          <ul class="gap-list">{{ range .Eval.BrowserIssues }}<li>{{ . }}</li>{{ end }}</ul>
           {{ end }}
           {{ if and .Eval.Scenario.CurlRequired (not .Eval.CurlOK) }}
           <ul class="gap-list">{{ range .Eval.CurlIssues }}<li>{{ . }}</li>{{ end }}</ul>
@@ -561,7 +584,13 @@ func RenderReports(run Run, eval Evaluation, evidence []Evidence) (string, strin
 	}
 
 	var html strings.Builder
-	if err := tmpl.Execute(&html, reportData{Run: run, Eval: eval, Scenarios: scenarios, EdgeCoverage: edgeCoverage}); err != nil {
+	if err := tmpl.Execute(&html, reportData{
+		Run:          run,
+		Eval:         eval,
+		Scenarios:    scenarios,
+		EdgeCoverage: edgeCoverage,
+		CurlCoverage: curlRequirements,
+	}); err != nil {
 		return "", "", err
 	}
 	return md.String(), html.String(), nil
@@ -601,6 +630,12 @@ type edgeCoverageRow struct {
 	ScenarioLabels []string
 }
 
+type curlRequirementRow struct {
+	Label     string
+	ID        string
+	Endpoints []string
+}
+
 func edgeCoverageRows(run Run) []edgeCoverageRow {
 	scenarioLabels := map[string]string{}
 	for _, scenario := range run.Scenarios {
@@ -618,6 +653,22 @@ func edgeCoverageRows(run Run) []edgeCoverageRow {
 			if label := scenarioLabels[scenarioID]; label != "" {
 				row.ScenarioLabels = append(row.ScenarioLabels, label)
 			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func curlRequirementRows(run Run) []curlRequirementRow {
+	var rows []curlRequirementRow
+	for _, scenario := range run.Scenarios {
+		if !scenario.CurlRequired {
+			continue
+		}
+		row := curlRequirementRow{
+			Label:     scenario.Label,
+			ID:        scenario.ID,
+			Endpoints: append([]string(nil), scenario.CurlEndpoints...),
 		}
 		rows = append(rows, row)
 	}
@@ -682,8 +733,12 @@ func scenarioComplete(eval ScenarioEvaluation) bool {
 }
 
 func curlModeLabel(run Run) string {
-	if run.CurlRequired {
-		return "required"
+	requiredScenarios := curlRequirementRows(run)
+	if len(requiredScenarios) > 0 {
+		return fmt.Sprintf("required for %d scenario(s)", len(requiredScenarios))
+	}
+	if strings.TrimSpace(run.CurlSkipReason) == "" {
+		return "skipped"
 	}
 	return "skipped (" + run.CurlSkipReason + ")"
 }

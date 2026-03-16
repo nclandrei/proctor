@@ -126,8 +126,10 @@ Typical web workflow:
   proctor start \
     --feature "new authentication flow" \
     --url http://127.0.0.1:3000/login \
-    --curl required \
-    --curl-endpoint "POST /api/login" \
+    --curl scenario \
+    --curl-endpoint "happy-path=POST /api/login" \
+    --curl-endpoint "failure-path=POST /api/login" \
+    --curl-endpoint "Already signed-in users are redirected away from /login=GET /api/session" \
     --happy-path "Valid credentials redirect to the dashboard." \
     --failure-path "Invalid credentials show an error and keep the user on /login." \
     --edge-case "validation and malformed input=Bad email shows inline validation" \
@@ -157,7 +159,7 @@ Typical web workflow:
     --assert 'desktop_screenshot = true' \
     --assert 'mobile_screenshot = true'
 
-  # When backend or protocol risk matters, also wrap a real curl command:
+  # When a scenario carries backend or protocol risk, also wrap a real curl command:
   proctor record curl \
     --scenario failure-path \
     --assert 'status = 401' \
@@ -243,14 +245,26 @@ flags so the contract is reproducible.
 Required web flags:
   --feature TEXT             Human label for the feature or flow under test
   --url URL                  Browser URL for the flow
-  --curl required|skip       Whether direct HTTP verification is required
+  --curl required|scenario|skip
+                             HTTP verification mode for the contract
   --happy-path TEXT          Primary success scenario
   --failure-path TEXT        Primary failure or back-out scenario
   --edge-case "CATEGORY=..." Edge-case coverage by category
 
 Conditional flags:
   --curl-endpoint TEXT       Repeat once per endpoint when --curl required
+                             or once per risky scenario when --curl scenario
   --curl-skip-reason TEXT    Required when --curl skip
+
+curl modes:
+  required  shorthand that requires curl for happy-path and failure-path
+  scenario  require curl only for named risky scenarios
+  skip      require no curl evidence for this run; must include a reason
+
+scenario curl format:
+  --curl-endpoint "happy-path=POST /api/login"
+  --curl-endpoint "failure-path=POST /api/login"
+  --curl-endpoint "auth and session state:Already signed-in users are redirected away from /login=GET /api/session"
 
 Edge-case format:
   --edge-case "CATEGORY=scenario one; scenario two"
@@ -286,8 +300,10 @@ HTTP-backed example:
   proctor start \
     --feature "new authentication flow" \
     --url http://127.0.0.1:3000/login \
-    --curl required \
-    --curl-endpoint "POST /api/login" \
+    --curl scenario \
+    --curl-endpoint "happy-path=POST /api/login" \
+    --curl-endpoint "failure-path=POST /api/login" \
+    --curl-endpoint "Already signed-in users are redirected away from /login=GET /api/session" \
     --happy-path "Valid credentials redirect to the dashboard." \
     --failure-path "Invalid credentials show an error and keep the user on /login." \
     --edge-case "validation and malformed input=Bad email shows inline validation" \
@@ -304,7 +320,7 @@ HTTP-backed example:
 After start:
   - run your browser checks
   - attach evidence with proctor record browser
-  - wrap curl with proctor record curl when required
+  - wrap curl with proctor record curl for the scenarios that require it
   - finish with proctor done
 `)
 	return b.String()
@@ -324,6 +340,7 @@ Use:
 Important:
   - browser evidence attaches one browser run to one named scenario
   - curl evidence wraps one real command for one named scenario
+  - curl requirements are decided per scenario, not by endpoint alone
   - only recorded evidence counts toward proctor done
 `
 }
@@ -444,6 +461,9 @@ Example:
     curl -si -X POST http://127.0.0.1:3000/api/login \
       -H 'content-type: application/json' \
       -d '{"email":"demo@example.com","password":"wrong"}'
+
+Use the scenario ids from the contract. If proctor start used --curl scenario,
+only the named risky scenarios need curl evidence.
 `
 }
 
@@ -456,7 +476,7 @@ Usage:
 This prints:
   - every scenario in the contract
   - whether browser evidence passes or fails
-  - whether curl evidence passes or fails when required
+  - whether curl evidence passes or fails for scenarios that require it
   - any global gaps such as missing desktop or mobile screenshots
 
 Use this after each record step so the agent can see what is still missing.

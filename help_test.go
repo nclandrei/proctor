@@ -52,6 +52,7 @@ func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 		"Codex, Claude Code",
 		"proctor start --help",
 		"proctor record browser --help",
+		"--curl scenario",
 		"report.html is always rendered in dark mode",
 	} {
 		if !strings.Contains(text, needle) {
@@ -86,5 +87,24 @@ func TestRecordBrowserHelpMentionsRunWideMobileRequirement(t *testing.T) {
 	}
 	if !strings.Contains(text, "console warnings are recorded in the report but stay non-blocking unless you assert them explicitly") {
 		t.Fatalf("expected record browser help to explain the warning policy, got:\n%s", text)
+	}
+}
+
+func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
+	text, ok, err := commandHelp([]string{"start", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"--curl required|scenario|skip",
+		`--curl-endpoint "happy-path=POST /api/login"`,
+		"require curl only for named risky scenarios",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected start help to mention %q, got:\n%s", needle, text)
+		}
 	}
 }

@@ -78,6 +78,7 @@ func (s *Store) LoadRun(repoRoot string) (Run, error) {
 	if err := json.Unmarshal(data, &run); err != nil {
 		return Run{}, err
 	}
+	normalizeRunCurlPlan(&run)
 	return run, nil
 }
 

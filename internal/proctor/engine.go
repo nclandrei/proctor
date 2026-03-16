@@ -13,9 +13,9 @@ import (
 func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 	curlMode := strings.ToLower(strings.TrimSpace(opts.CurlMode))
 	switch curlMode {
-	case "required", "skip":
+	case CurlModeRequired, CurlModeScenario, CurlModeSkip:
 	default:
-		return Run{}, fmt.Errorf("--curl must be either required or skip")
+		return Run{}, fmt.Errorf("--curl must be one of required, scenario, or skip")
 	}
 	if strings.TrimSpace(opts.Feature) == "" {
 		return Run{}, fmt.Errorf("--feature is required")
@@ -29,10 +29,14 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 	if strings.TrimSpace(opts.FailurePath) == "" {
 		return Run{}, fmt.Errorf("--failure-path is required")
 	}
-	if curlMode == "required" && len(normalizedLines(opts.CurlEndpoints)) == 0 {
+	curlEndpoints := normalizedLines(opts.CurlEndpoints)
+	if curlMode == CurlModeRequired && len(curlEndpoints) == 0 {
 		return Run{}, fmt.Errorf("--curl-endpoint is required when --curl required")
 	}
-	if curlMode == "skip" && strings.TrimSpace(opts.CurlSkipReason) == "" {
+	if curlMode == CurlModeScenario && len(curlEndpoints) == 0 {
+		return Run{}, fmt.Errorf("--curl-endpoint is required when --curl scenario")
+	}
+	if curlMode == CurlModeSkip && strings.TrimSpace(opts.CurlSkipReason) == "" {
 		return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
 	}
 
@@ -48,33 +52,33 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		RepoSlug:       repoSlug,
 		Feature:        strings.TrimSpace(opts.Feature),
 		BrowserURL:     strings.TrimSpace(opts.BrowserURL),
-		CurlRequired:   curlMode == "required",
-		CurlEndpoints:  normalizedLines(opts.CurlEndpoints),
+		CurlMode:       curlMode,
+		CurlRequired:   curlMode == CurlModeRequired,
+		CurlEndpoints:  legacyRunCurlEndpoints(curlMode, curlEndpoints),
 		CurlSkipReason: strings.TrimSpace(opts.CurlSkipReason),
 		Status:         StatusInProgress,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
 
-	run.HappyPath = Scenario{
+	edgeCategories, edgeScenarios := parseEdgeCaseInputs(opts.EdgeCaseInputs)
+	run.EdgeCaseCategories = edgeCategories
+	run.Scenarios = append(run.Scenarios, Scenario{
 		ID:              "happy-path",
 		Label:           strings.TrimSpace(opts.HappyPath),
 		Kind:            "happy-path",
 		BrowserRequired: true,
-		CurlRequired:    run.CurlRequired,
-	}
-	run.FailurePath = Scenario{
+	}, Scenario{
 		ID:              "failure-path",
 		Label:           strings.TrimSpace(opts.FailurePath),
 		Kind:            "failure-path",
 		BrowserRequired: true,
-		CurlRequired:    run.CurlRequired,
-	}
-	run.Scenarios = append(run.Scenarios, run.HappyPath, run.FailurePath)
-
-	edgeCategories, edgeScenarios := parseEdgeCaseInputs(opts.EdgeCaseInputs)
-	run.EdgeCaseCategories = edgeCategories
+	})
 	run.Scenarios = append(run.Scenarios, edgeScenarios...)
+	if err := applyScenarioCurlPlan(&run, curlMode, curlEndpoints); err != nil {
+		return Run{}, err
+	}
+	syncPrimaryScenarios(&run)
 
 	runDir := store.RunDir(run)
 	if err := os.MkdirAll(filepath.Join(runDir, "artifacts"), 0o755); err != nil {
@@ -368,6 +372,182 @@ func normalizedLines(values []string) []string {
 			continue
 		}
 		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func legacyRunCurlEndpoints(curlMode string, curlEndpoints []string) []string {
+	if curlMode != CurlModeRequired {
+		return nil
+	}
+	return append([]string(nil), curlEndpoints...)
+}
+
+func applyScenarioCurlPlan(run *Run, curlMode string, curlEndpoints []string) error {
+	switch curlMode {
+	case CurlModeRequired:
+		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+			setScenarioCurlPlan(run, scenarioID, curlEndpoints)
+		}
+	case CurlModeScenario:
+		for _, spec := range curlEndpoints {
+			ref, endpoints, err := parseScenarioCurlSpec(spec)
+			if err != nil {
+				return err
+			}
+			scenarioID, err := resolveScenarioRef(*run, ref)
+			if err != nil {
+				return err
+			}
+			setScenarioCurlPlan(run, scenarioID, endpoints)
+		}
+	case CurlModeSkip:
+		return nil
+	}
+	return nil
+}
+
+func parseScenarioCurlSpec(value string) (string, []string, error) {
+	ref, rawEndpoints, ok := strings.Cut(value, "=")
+	if !ok {
+		return "", nil, fmt.Errorf("invalid --curl-endpoint for --curl scenario: %s", value)
+	}
+	ref = strings.TrimSpace(ref)
+	endpoints := splitAndNormalize(rawEndpoints, ";")
+	if ref == "" || len(endpoints) == 0 {
+		return "", nil, fmt.Errorf("invalid --curl-endpoint for --curl scenario: %s", value)
+	}
+	return ref, endpoints, nil
+}
+
+func resolveScenarioRef(run Run, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("curl scenario reference is required")
+	}
+
+	if scenarioID, ok := matchScenarioRef(run.Scenarios, func(s Scenario) bool {
+		return strings.EqualFold(ref, s.ID) || (s.Kind != "edge-case" && strings.EqualFold(ref, s.Kind))
+	}); ok {
+		return scenarioID, nil
+	}
+
+	if category, label, ok := strings.Cut(ref, ":"); ok {
+		if scenarioID, matchErr := matchUniqueScenario(run.Scenarios, func(s Scenario) bool {
+			return s.Kind == "edge-case" &&
+				strings.EqualFold(strings.TrimSpace(category), s.Category) &&
+				strings.EqualFold(strings.TrimSpace(label), s.Label)
+		}); matchErr == nil {
+			return scenarioID, nil
+		} else if matchErr != errNoScenarioMatch {
+			return "", matchErr
+		}
+	}
+
+	if scenarioID, matchErr := matchUniqueScenario(run.Scenarios, func(s Scenario) bool {
+		return strings.EqualFold(ref, s.Label)
+	}); matchErr == nil {
+		return scenarioID, nil
+	} else if matchErr != errNoScenarioMatch {
+		return "", matchErr
+	}
+
+	if scenarioID, matchErr := matchUniqueScenario(run.Scenarios, func(s Scenario) bool {
+		return s.Kind == "edge-case" && strings.EqualFold(ref, s.Category)
+	}); matchErr == nil {
+		return scenarioID, nil
+	} else if matchErr != errNoScenarioMatch {
+		return "", matchErr
+	}
+
+	return "", fmt.Errorf("unknown curl scenario reference: %s", ref)
+}
+
+var errNoScenarioMatch = fmt.Errorf("no scenario match")
+
+func matchScenarioRef(scenarios []Scenario, match func(Scenario) bool) (string, bool) {
+	for _, scenario := range scenarios {
+		if match(scenario) {
+			return scenario.ID, true
+		}
+	}
+	return "", false
+}
+
+func matchUniqueScenario(scenarios []Scenario, match func(Scenario) bool) (string, error) {
+	var matches []string
+	for _, scenario := range scenarios {
+		if match(scenario) {
+			matches = append(matches, scenario.ID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", errNoScenarioMatch
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("ambiguous curl scenario reference; use the scenario id or category:label")
+	}
+}
+
+func setScenarioCurlPlan(run *Run, scenarioID string, endpoints []string) {
+	for idx := range run.Scenarios {
+		if run.Scenarios[idx].ID != scenarioID {
+			continue
+		}
+		run.Scenarios[idx].CurlRequired = true
+		run.Scenarios[idx].CurlEndpoints = append(run.Scenarios[idx].CurlEndpoints, endpoints...)
+		run.Scenarios[idx].CurlEndpoints = dedupeStrings(run.Scenarios[idx].CurlEndpoints)
+		break
+	}
+}
+
+func syncPrimaryScenarios(run *Run) {
+	if scenario, ok := findScenario(*run, "happy-path"); ok {
+		run.HappyPath = scenario
+	}
+	if scenario, ok := findScenario(*run, "failure-path"); ok {
+		run.FailurePath = scenario
+	}
+}
+
+func normalizeRunCurlPlan(run *Run) {
+	if !hasScenarioCurlRequirements(*run) && run.CurlRequired {
+		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+			setScenarioCurlPlan(run, scenarioID, run.CurlEndpoints)
+		}
+	}
+	if strings.TrimSpace(run.CurlMode) == "" {
+		switch {
+		case run.CurlRequired:
+			run.CurlMode = CurlModeRequired
+		case hasScenarioCurlRequirements(*run):
+			run.CurlMode = CurlModeScenario
+		default:
+			run.CurlMode = CurlModeSkip
+		}
+	}
+	syncPrimaryScenarios(run)
+}
+
+func hasScenarioCurlRequirements(run Run) bool {
+	for _, scenario := range run.Scenarios {
+		if scenario.CurlRequired || len(scenario.CurlEndpoints) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func splitAndNormalize(value, sep string) []string {
+	var normalized []string
+	for _, part := range strings.Split(value, sep) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		normalized = append(normalized, part)
 	}
 	return normalized
 }

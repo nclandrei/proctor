@@ -65,8 +65,10 @@ For user-visible web work, start here:
 proctor start \
   --feature "new authentication flow" \
   --url http://127.0.0.1:3000/login \
-  --curl required \
-  --curl-endpoint "POST /api/login" \
+  --curl scenario \
+  --curl-endpoint "happy-path=POST /api/login" \
+  --curl-endpoint "failure-path=POST /api/login" \
+  --curl-endpoint "Already signed-in users are redirected away from /login=GET /api/session" \
   --happy-path "Valid credentials redirect to the dashboard." \
   --failure-path "Invalid credentials show an error and keep the user on /login." \
   --edge-case "validation and malformed input=Bad email shows inline validation" \
@@ -80,6 +82,8 @@ proctor start \
   --edge-case "accessibility and keyboard behavior=Enter submits from the password field; tab order stays correct" \
   --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 ```
+
+`curl` is decided per scenario. `--curl scenario` is the explicit risk-based mode, and each `--curl-endpoint` entry binds one or more endpoints to a named scenario. `--curl required` remains as a shorthand for requiring curl on both the happy path and failure path.
 
 If the flow is mostly client-side and there is no meaningful backend or protocol risk, skip `curl` with an explicit reason:
 
@@ -167,7 +171,7 @@ You can reuse one browser report for multiple scenarios if it genuinely proves e
 
 ### 4. Attach HTTP Evidence When Required
 
-When `curl` matters, wrap the real command:
+When a scenario requires `curl`, wrap the real command:
 
 ```bash
 proctor record curl \
@@ -216,6 +220,8 @@ For curl evidence, Proctor expects:
 - at least one passing assertion
 
 Provenance alone is not enough. Evidence must also include scenario-specific assertions.
+
+`curl` is gated per scenario, not per endpoint. Endpoints are recorded on each scenario so the contract can say which HTTP surfaces carry risk, but `proctor done` still evaluates evidence scenario-by-scenario.
 
 ## Browser Assertions
 
@@ -315,7 +321,7 @@ Important files:
 The current implementation is strongest for web:
 
 - browser evidence is fully enforced
-- `curl` is supported when backend or protocol risk matters
+- `curl` risk is modeled per scenario, with scenario-level endpoint lists and scenario-level completion gates
 
 iOS and CLI are part of the design, but not yet implemented in the same depth.
 

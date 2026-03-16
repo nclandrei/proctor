@@ -112,6 +112,9 @@ func runStatus(store *proctor.Store, cwd string) error {
 			}
 		}
 		if item.Scenario.CurlRequired {
+			if len(item.Scenario.CurlEndpoints) > 0 {
+				fmt.Printf("  curl contract: %s\n", strings.Join(item.Scenario.CurlEndpoints, "; "))
+			}
 			if item.CurlOK {
 				fmt.Println("  curl: pass")
 			} else {
@@ -262,23 +265,6 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 			return err
 		}
 	}
-	if strings.TrimSpace(opts.CurlMode) == "" {
-		if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/skip)"); err != nil {
-			return err
-		}
-	}
-	if strings.EqualFold(opts.CurlMode, "required") && len(opts.CurlEndpoints) == 0 {
-		value, err := prompt(reader, out, "curl endpoint(s), separated by ';'")
-		if err != nil {
-			return err
-		}
-		opts.CurlEndpoints = splitSemicolonList(value)
-	}
-	if strings.EqualFold(opts.CurlMode, "skip") && strings.TrimSpace(opts.CurlSkipReason) == "" {
-		if opts.CurlSkipReason, err = prompt(reader, out, "Reason for skipping direct HTTP verification"); err != nil {
-			return err
-		}
-	}
 	if strings.TrimSpace(opts.HappyPath) == "" {
 		if opts.HappyPath, err = prompt(reader, out, "Happy path"); err != nil {
 			return err
@@ -296,6 +282,30 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 				return err
 			}
 			opts.EdgeCaseInputs = append(opts.EdgeCaseInputs, category+"="+answer)
+		}
+	}
+	if strings.TrimSpace(opts.CurlMode) == "" {
+		if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/scenario/skip)"); err != nil {
+			return err
+		}
+	}
+	if strings.EqualFold(opts.CurlMode, proctor.CurlModeRequired) && len(opts.CurlEndpoints) == 0 {
+		value, err := prompt(reader, out, "curl endpoint(s), separated by ';'")
+		if err != nil {
+			return err
+		}
+		opts.CurlEndpoints = splitSemicolonList(value)
+	}
+	if strings.EqualFold(opts.CurlMode, proctor.CurlModeScenario) && len(opts.CurlEndpoints) == 0 {
+		value, err := prompt(reader, out, "curl scenario plan(s), separated by '|' (SCENARIO=METHOD /path[; METHOD /path])")
+		if err != nil {
+			return err
+		}
+		opts.CurlEndpoints = splitPipeList(value)
+	}
+	if strings.EqualFold(opts.CurlMode, proctor.CurlModeSkip) && strings.TrimSpace(opts.CurlSkipReason) == "" {
+		if opts.CurlSkipReason, err = prompt(reader, out, "Reason for skipping direct HTTP verification"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -317,6 +327,17 @@ func prompt(reader *bufio.Reader, out *os.File, label string) (string, error) {
 func splitSemicolonList(value string) []string {
 	var items []string
 	for _, part := range strings.Split(value, ";") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
+}
+
+func splitPipeList(value string) []string {
+	var items []string
+	for _, part := range strings.Split(value, "|") {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			items = append(items, part)
