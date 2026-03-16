@@ -184,6 +184,10 @@ report.json file that matches the documented shape and attach that.
 
 For web runs, mobile proof is mandatory. Proctor requires at least one desktop
 and at least one mobile screenshot somewhere in the recorded browser evidence.
+Console warnings are still recorded in the report, but the default blocking
+gate only fails on console errors, page errors, failed requests, and HTTP
+errors. Add an explicit assertion such as "console_warnings = 0" when warnings
+must block a scenario.
 
 The browser report only needs a small shape:
   {
