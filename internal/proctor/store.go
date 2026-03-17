@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -103,6 +104,10 @@ func (s *Store) AppendEvidence(run Run, evidence Evidence) error {
 		return err
 	}
 	defer file.Close()
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock evidence file: %w", err)
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	enc := json.NewEncoder(file)
 	return enc.Encode(evidence)
 }
@@ -117,6 +122,10 @@ func (s *Store) LoadEvidence(run Run) ([]Evidence, error) {
 		return nil, err
 	}
 	defer file.Close()
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH); err != nil {
+		return nil, fmt.Errorf("lock evidence file: %w", err)
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 
 	var evidence []Evidence
 	scanner := bufio.NewScanner(file)
