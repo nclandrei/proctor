@@ -207,6 +207,115 @@ func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
 	}
 }
 
+func TestCreateRunRequiresExplicitEdgeCaseCoverage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	removeCategory := func(inputs []string, category string) []string {
+		var filtered []string
+		for _, input := range inputs {
+			key, _, ok := parseEdgeCaseInput(input)
+			if ok && strings.EqualFold(key, category) {
+				continue
+			}
+			filtered = append(filtered, input)
+		}
+		return filtered
+	}
+	replaceCategory := func(inputs []string, category, value string) []string {
+		replaced := false
+		for idx, input := range inputs {
+			key, _, ok := parseEdgeCaseInput(input)
+			if ok && strings.EqualFold(key, category) {
+				inputs[idx] = category + "=" + value
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			inputs = append(inputs, category+"="+value)
+		}
+		return inputs
+	}
+
+	testCases := []struct {
+		name      string
+		opts      StartOptions
+		wantError string
+	}{
+		{
+			name: "missing web category",
+			opts: StartOptions{
+				Feature:        "edge-case validation",
+				BrowserURL:     "http://127.0.0.1:3000/login",
+				CurlMode:       "skip",
+				CurlSkipReason: "No backend coverage needed for this test",
+				HappyPath:      "happy",
+				FailurePath:    "failure",
+				EdgeCaseInputs: removeCategory(allNAEdgeCases(EdgeCaseCategoriesForPlatform(PlatformWeb)), "any feature-specific risks"),
+			},
+			wantError: `missing required edge-case coverage for "any feature-specific risks"`,
+		},
+		{
+			name: "missing ios-specific category",
+			opts: StartOptions{
+				Platform:       PlatformIOS,
+				Feature:        "ios edge-case validation",
+				IOSScheme:      "Pagena",
+				IOSBundleID:    "com.example.pagena",
+				CurlMode:       "skip",
+				CurlSkipReason: "UI-only verification for this test",
+				HappyPath:      "happy",
+				FailurePath:    "failure",
+				EdgeCaseInputs: removeCategory(allNAEdgeCases(EdgeCaseCategoriesForPlatform(PlatformIOS)), "device traits, orientation, and layout"),
+			},
+			wantError: `missing required edge-case coverage for "device traits, orientation, and layout"`,
+		},
+		{
+			name: "na without reason",
+			opts: StartOptions{
+				Feature:        "edge-case validation",
+				BrowserURL:     "http://127.0.0.1:3000/login",
+				CurlMode:       "skip",
+				CurlSkipReason: "No backend coverage needed for this test",
+				HappyPath:      "happy",
+				FailurePath:    "failure",
+				EdgeCaseInputs: replaceCategory(allNAEdgeCases(EdgeCaseCategoriesForPlatform(PlatformWeb)), "empty or missing input", "N/A"),
+			},
+			wantError: `edge-case "empty or missing input" must use "N/A: reason"`,
+		},
+		{
+			name: "scenario list without concrete scenarios",
+			opts: StartOptions{
+				Feature:        "edge-case validation",
+				BrowserURL:     "http://127.0.0.1:3000/login",
+				CurlMode:       "skip",
+				CurlSkipReason: "No backend coverage needed for this test",
+				HappyPath:      "happy",
+				FailurePath:    "failure",
+				EdgeCaseInputs: replaceCategory(allNAEdgeCases(EdgeCaseCategoriesForPlatform(PlatformWeb)), "retry or double-submit", " ; "),
+			},
+			wantError: `edge-case "retry or double-submit" must list one or more concrete scenarios or use "N/A: reason"`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := CreateRun(store, repo, tc.opts)
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
+			}
+		})
+	}
+}
+
 func TestCreateRunSupportsScenarioLevelCurlRequirements(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)

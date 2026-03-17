@@ -438,6 +438,9 @@ Each category must be covered either by:
 - one or more concrete scenarios
 - or `N/A` with a reason
 
+If any category is omitted, or uses bare `N/A` with no reason, `proctor start`
+fails instead of silently treating it as uncovered.
+
 Current categories:
 
 Web:

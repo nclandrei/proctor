@@ -414,6 +414,7 @@ Edge-case format:
   --edge-case "CATEGORY=N/A: short reason"
 
 Every category must be covered either by scenarios or by an explicit N/A reason.
+If any platform category is omitted, or uses bare N/A with no reason, proctor start fails.
 Web categories:
 `)
 	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformWeb) {
