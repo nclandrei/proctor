@@ -215,6 +215,88 @@ func TestCLIAssertionFailureBlocksScenario(t *testing.T) {
 	}
 }
 
+func TestCLIFailAssertUsesFinalizeSemanticsLikeOtherSurfaces(t *testing.T) {
+	exitCode := 0
+	data := CLIData{
+		Command:   "demo help",
+		SessionID: "cli-session-1",
+		Tool:      "terminal-session",
+		ExitCode:  &exitCode,
+	}
+	transcript := "Usage:\n  demo help"
+	artifacts := []Artifact{{Kind: ArtifactImage, Label: "terminal"}}
+
+	// A fail-assert where the underlying expression DOES match (so the
+	// negation should mark it as failed with a diagnostic message).
+	assertions, err := EvaluateCLIAssertions(
+		nil,
+		[]string{"output contains Usage"},
+		data, transcript, artifacts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var failAssert *Assertion
+	for idx := range assertions {
+		if strings.Contains(assertions[idx].Description, "Usage") {
+			failAssert = &assertions[idx]
+			break
+		}
+	}
+	if failAssert == nil {
+		t.Fatal("expected to find the fail-assert in the output")
+	}
+
+	// Must have NOT (...) prefix like browser, iOS, and curl surfaces.
+	if !strings.HasPrefix(failAssert.Description, "NOT (") {
+		t.Fatalf("expected Description to have NOT (...) prefix, got %q", failAssert.Description)
+	}
+
+	// Must be marked as failed (the underlying expression matched, so the
+	// negation means it failed).
+	if failAssert.Result != AssertionFail {
+		t.Fatalf("expected Result=fail for a negated assertion that matched, got %q", failAssert.Result)
+	}
+
+	// Must carry the diagnostic message like other surfaces.
+	if failAssert.Message == "" {
+		t.Fatal("expected a non-empty Message explaining why the negated assertion failed")
+	}
+	if !strings.Contains(failAssert.Message, "expected this assertion to fail") {
+		t.Fatalf("expected diagnostic message, got %q", failAssert.Message)
+	}
+
+	// Also test the happy path: fail-assert where expression does NOT match
+	// should pass with no message.
+	assertions2, err := EvaluateCLIAssertions(
+		nil,
+		[]string{"output contains definitely-missing"},
+		data, transcript, artifacts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var passAssert *Assertion
+	for idx := range assertions2 {
+		if strings.Contains(assertions2[idx].Description, "definitely-missing") {
+			passAssert = &assertions2[idx]
+			break
+		}
+	}
+	if passAssert == nil {
+		t.Fatal("expected to find the fail-assert in the output")
+	}
+
+	if !strings.HasPrefix(passAssert.Description, "NOT (") {
+		t.Fatalf("expected Description to have NOT (...) prefix, got %q", passAssert.Description)
+	}
+	if passAssert.Result != AssertionPass {
+		t.Fatalf("expected Result=pass for a negated assertion that did not match, got %q", passAssert.Result)
+	}
+}
+
 func sampleCLIStartOptions() StartOptions {
 	return StartOptions{
 		Surface:        RunSurfaceCLI,

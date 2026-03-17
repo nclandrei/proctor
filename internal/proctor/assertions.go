@@ -415,19 +415,7 @@ func evaluateCLIAssertion(expression string, data CLIData, transcript string, ar
 	if err != nil {
 		return Assertion{}, err
 	}
-	if !expectPass {
-		passed = !passed
-	}
-	result := AssertionFail
-	if passed {
-		result = AssertionPass
-	}
-	return Assertion{
-		Description: expression,
-		Expected:    expectedText,
-		Actual:      actualText,
-		Result:      result,
-	}, nil
+	return finalizeAssertion(expression, expectedText, actualText, passed, expectPass), nil
 }
 
 func lookupCLIValue(key string, data CLIData, transcript string, artifacts []Artifact) (interface{}, bool) {
