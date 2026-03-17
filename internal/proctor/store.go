@@ -138,13 +138,7 @@ func (s *Store) CopyArtifact(run Run, surface, scenarioID, label, sourcePath str
 	if ext == "" {
 		ext = ".dat"
 	}
-	fileName := fmt.Sprintf("%s%s", slugify(label), ext)
-	relativePath := filepath.Join("artifacts", surface, scenarioID, fileName)
-	targetPath := filepath.Join(s.RunDir(run), relativePath)
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return Artifact{}, err
-	}
-	dst, err := os.Create(targetPath)
+	relativePath, dst, err := s.createArtifactFile(run, surface, scenarioID, label, ext)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -152,9 +146,11 @@ func (s *Store) CopyArtifact(run Run, surface, scenarioID, label, sourcePath str
 	writer := io.MultiWriter(dst, hasher)
 	if _, err := io.Copy(writer, src); err != nil {
 		dst.Close()
+		os.Remove(dst.Name())
 		return Artifact{}, err
 	}
 	if err := dst.Close(); err != nil {
+		os.Remove(dst.Name())
 		return Artifact{}, err
 	}
 	return Artifact{
@@ -169,12 +165,17 @@ func (s *Store) WriteArtifact(run Run, surface, scenarioID, label, extension str
 	if extension == "" {
 		extension = ".txt"
 	}
-	relativePath := filepath.Join("artifacts", surface, scenarioID, slugify(label)+extension)
-	targetPath := filepath.Join(s.RunDir(run), relativePath)
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	relativePath, file, err := s.createArtifactFile(run, surface, scenarioID, label, extension)
+	if err != nil {
 		return Artifact{}, err
 	}
-	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
+	if _, err := file.Write(content); err != nil {
+		file.Close()
+		os.Remove(file.Name())
+		return Artifact{}, err
+	}
+	if err := file.Close(); err != nil {
+		os.Remove(file.Name())
 		return Artifact{}, err
 	}
 	sum := sha256.Sum256(content)
@@ -196,6 +197,19 @@ func (s *Store) VerifyArtifactHash(run Run, artifact Artifact) error {
 		return fmt.Errorf("hash mismatch for %s", artifact.Path)
 	}
 	return nil
+}
+
+func (s *Store) createArtifactFile(run Run, surface, scenarioID, label, extension string) (string, *os.File, error) {
+	dir := filepath.Join(s.RunDir(run), "artifacts", surface, scenarioID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, err
+	}
+	file, err := os.CreateTemp(dir, fmt.Sprintf("%s-*%s", slugify(label), extension))
+	if err != nil {
+		return "", nil, err
+	}
+	relativePath := filepath.Join("artifacts", surface, scenarioID, filepath.Base(file.Name()))
+	return relativePath, file, nil
 }
 
 func RepoRoot(cwd string) string {

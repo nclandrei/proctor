@@ -525,6 +525,8 @@ Important files:
 
 `contract.md` and `report.html` are derived from the recorded evidence. They are human-facing outputs, not the source of truth.
 
+Artifact files are append-only. Re-recording the same surface, scenario, and label creates a new uniquely named file under `artifacts/` instead of overwriting an earlier recording.
+
 `report.html` is always rendered in dark mode, keeps its styles, screenshot previews, and embedded log transcripts self-contained, lets readers enlarge screenshots inline, and keeps logs collapsed until the reader expands them.
 
 ## Current Scope
