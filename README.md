@@ -69,6 +69,10 @@ create the right contract, run the manual checks, and record real evidence.
 
 ### 1. Create the Contract
 
+Before writing the contract, inspect the current repo diff and choose the
+actual user-visible change under test. Do not replace the changed feature with
+a generic smoke test just because it is faster to validate.
+
 For user-visible web work, start here:
 
 ```bash
@@ -219,6 +223,24 @@ input deterministically, capture pane output, and take screenshots.
 - capture at least one screenshot
 - capture the terminal transcript from that session
 - record the actual command you exercised
+
+## Known-Good Capture Workflows
+
+Proctor does not own capture. The agent should discover or choose a workflow
+that can emit the required artifacts, then attach them with `proctor record`.
+
+Known-good defaults:
+
+- Web: if `agent-browser` is available in the agent environment, it is a good default for driving the browser, capturing desktop and mobile screenshots, and producing the small `report.json` Proctor expects.
+- iOS: if `xcrun` is available, `xcrun simctl` is a good default for booting a simulator, taking screenshots, and inspecting logs before you write `ios-report.json`.
+- CLI/TUI: a real terminal plus `tmux` is a good default for keeping the session alive, capturing the transcript, and taking a screenshot before `proctor record cli`.
+- HTTP: `curl -si` is a good default when a scenario carries direct HTTP risk.
+
+These are recommendations only. Proctor stays tool-agnostic and accepts any
+workflow that produces the required artifacts and assertions.
+
+At runtime, `proctor start`, `proctor status`, and `proctor done` also print
+local recommendations based on tools found on `PATH`.
 
 ### 3. Attach Browser Evidence
 

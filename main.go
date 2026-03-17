@@ -100,6 +100,7 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	}
 	fmt.Printf("Created run %s\n", run.ID)
 	fmt.Printf("Run directory: %s\n", store.RunDir(run))
+	printRunRecommendations(os.Stdout, "Recommended next step:", run, nil)
 	return nil
 }
 
@@ -140,6 +141,7 @@ func runStatus(store *proctor.Store, cwd string) error {
 		fmt.Println("Status: complete")
 	} else {
 		fmt.Println("Status: incomplete")
+		printRunRecommendations(os.Stdout, "Suggested capture workflows:", run, &eval)
 	}
 	return nil
 }
@@ -327,6 +329,7 @@ func runDone(store *proctor.Store, cwd string) error {
 	for _, item := range eval.GlobalMissing {
 		fmt.Printf("- %s\n", item)
 	}
+	printRunRecommendations(os.Stdout, "Suggested capture workflows:", run, &eval)
 	return errors.New("verification contract incomplete")
 }
 

@@ -99,6 +99,7 @@ func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 		"--curl scenario",
 		"proctor record ios --help",
 		"report.html is always rendered in dark mode",
+		"known-good local capture workflows based on tools found on PATH",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("expected help to mention %q, got:\n%s", needle, text)
@@ -160,6 +161,7 @@ func TestRootHelpMentionsMandatoryMobileCoverage(t *testing.T) {
 }
 
 func TestRecordBrowserHelpMentionsRunWideMobileRequirement(t *testing.T) {
+	withStubbedLookPath(t, "agent-browser", "curl")
 	text, ok, err := commandHelp([]string{"record", "browser", "--help"})
 	if err != nil {
 		t.Fatal(err)
@@ -173,9 +175,32 @@ func TestRecordBrowserHelpMentionsRunWideMobileRequirement(t *testing.T) {
 	if !strings.Contains(text, "console warnings are recorded in the report but stay non-blocking unless you assert them explicitly") {
 		t.Fatalf("expected record browser help to explain the warning policy, got:\n%s", text)
 	}
+	if !strings.Contains(text, "`agent-browser` detected on PATH") {
+		t.Fatalf("expected record browser help to include local browser recommendations, got:\n%s", text)
+	}
+}
+
+func TestStartHelpMentionsDiffDrivenFeatureSelection(t *testing.T) {
+	text, ok, err := commandHelp([]string{"start", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"inspect the current repo diff",
+		"user-visible change that actually needs verification",
+		"generic smoke test that is unrelated to the current diff",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected start help to mention %q, got:\n%s", needle, text)
+		}
+	}
 }
 
 func TestRecordIOSHelpMentionsImplicitHealthChecks(t *testing.T) {
+	withStubbedLookPath(t, "xcrun")
 	text, ok, err := commandHelp([]string{"record", "ios", "--help"})
 	if err != nil {
 		t.Fatal(err)
@@ -189,9 +214,13 @@ func TestRecordIOSHelpMentionsImplicitHealthChecks(t *testing.T) {
 	if !strings.Contains(text, "implicit zero-issue assertions cover launch errors, crashes, and fatal logs") {
 		t.Fatalf("expected ios help to describe default ios health policy, got:\n%s", text)
 	}
+	if !strings.Contains(text, "`xcrun` detected on PATH") {
+		t.Fatalf("expected ios help to include local simulator recommendations, got:\n%s", text)
+	}
 }
 
 func TestRecordCLIHelpMentionsTranscriptAndScreenshotRequirements(t *testing.T) {
+	withStubbedLookPath(t, "ghostty", "tmux")
 	text, ok, err := commandHelp([]string{"record", "cli", "--help"})
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +232,7 @@ func TestRecordCLIHelpMentionsTranscriptAndScreenshotRequirements(t *testing.T) 
 		"--command \"cli subcommand --flag\"",
 		"--transcript PATH",
 		"every cli scenario needs a transcript, at least one screenshot, and at least one passing assertion",
+		"`ghostty` and `tmux` are detected on PATH",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("expected cli help to mention %q, got:\n%s", needle, text)

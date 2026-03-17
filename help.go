@@ -142,6 +142,10 @@ Proctor does three things:
 Proctor is agent-agnostic. The same CLI should work from Codex, Claude Code, or
 any other coding agent that can run shell commands.
 
+When helpful, proctor start, proctor status, and proctor done recommend
+known-good local capture workflows based on tools found on PATH. Those
+recommendations are optional; the contract stays tool-agnostic.
+
 Typical prompt to give an agent:
   We just implemented the new authentication flow.
   Use proctor --help to manually test it.
@@ -357,7 +361,7 @@ Outputs:
   - contract.md is the human-readable contract
   - report.html is the shareable report
   - report.html is always rendered in dark mode
-`
+` + allPlatformRecommendationSection()
 }
 
 func startHelpText() string {
@@ -369,6 +373,10 @@ Usage:
 
 You can run start interactively, but agents usually do better with explicit
 flags so the contract is reproducible.
+
+Before choosing --feature, inspect the current repo diff and identify the
+user-visible change that actually needs verification. Do not substitute a
+generic smoke test that is unrelated to the current diff.
 
 Required:
   --platform web|ios|cli     Defaults to web
@@ -518,6 +526,7 @@ After start:
   - wrap curl with proctor record curl for the scenarios that require it on web or ios runs
   - finish with proctor done
 `)
+	b.WriteString(allPlatformRecommendationSection())
 	return b.String()
 }
 
@@ -625,7 +634,7 @@ Notes:
   - every web run must record at least one desktop screenshot and at least one mobile screenshot before proctor done can pass
   - implicit zero-issues assertions only cover console errors, page errors, failed requests, and HTTP errors
   - console warnings are recorded in the report but stay non-blocking unless you assert them explicitly
-`
+` + platformRecommendationSection(proctor.PlatformWeb, true)
 }
 
 func recordCLIHelpText() string {
@@ -680,7 +689,7 @@ Notes:
   - Preferred, not required: use a real terminal app plus tmux or an equivalent persistent multiplexer
   - one transcript and screenshot set can be reused for multiple scenarios if it genuinely proves each one
   - every cli scenario needs a transcript, at least one screenshot, and at least one passing assertion
-`
+` + platformRecommendationSection(proctor.PlatformCLI, false)
 }
 
 func recordIOSHelpText() string {
@@ -753,7 +762,7 @@ Notes:
   - one simulator report can be reused for multiple scenarios if it genuinely proves each one
   - every ios run must record at least one screenshot before proctor done can pass
   - implicit zero-issue assertions cover launch errors, crashes, and fatal logs
-`
+` + platformRecommendationSection(proctor.PlatformIOS, true)
 }
 
 func recordCurlHelpText() string {
@@ -795,7 +804,7 @@ Example:
 Use the scenario ids from the contract. If proctor start used --curl scenario,
 only the named risky scenarios need curl evidence. The wrapped request must
 match one of that scenario's declared curl endpoints.
-`
+` + platformRecommendationSection(proctor.PlatformWeb, true)
 }
 
 func statusHelpText() string {
@@ -813,6 +822,8 @@ This prints:
   - any global gaps such as missing required screenshots
 
 Use this after each record step so the agent can see what is still missing.
+When the run is incomplete, proctor status also prints platform-specific local
+capture recommendations based on tools found on PATH.
 `
 }
 
@@ -833,7 +844,8 @@ Passes only when:
 
 If the contract is incomplete, proctor done exits non-zero and prints what is
 still missing. This is the command the agent should treat as the real
-definition of done.
+definition of done. When it fails, it also prints platform-specific local
+capture recommendations based on tools found on PATH.
 `
 }
 
