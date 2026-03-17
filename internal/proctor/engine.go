@@ -39,6 +39,9 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 	if curlMode == CurlModeSkip && strings.TrimSpace(opts.CurlSkipReason) == "" {
 		return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
 	}
+	if err := validateEdgeCaseInputs(opts.EdgeCaseInputs); err != nil {
+		return Run{}, err
+	}
 
 	repoRoot := RepoRoot(cwd)
 	repoSlug, err := RepoSlug(repoRoot)
@@ -552,32 +555,85 @@ func splitAndNormalize(value, sep string) []string {
 	return normalized
 }
 
+func validateEdgeCaseInputs(inputs []string) error {
+	responses := edgeCaseResponseMap(inputs)
+	for _, category := range EdgeCaseCategories {
+		response, ok := responses[strings.ToLower(category)]
+		if !ok || strings.TrimSpace(response) == "" {
+			return fmt.Errorf("missing required edge-case coverage for %q", category)
+		}
+
+		if reason, isNA := edgeCaseNAReason(response); isNA {
+			if reason == "" {
+				return fmt.Errorf("edge-case %q must use %q", category, "N/A: reason")
+			}
+			continue
+		}
+
+		if len(splitAndNormalize(response, ";")) == 0 {
+			return fmt.Errorf("edge-case %q must list one or more concrete scenarios or use %q", category, "N/A: reason")
+		}
+	}
+	return nil
+}
+
+func edgeCaseResponseMap(inputs []string) map[string]string {
+	responses := map[string]string{}
+	for _, input := range inputs {
+		category, response, ok := parseEdgeCaseInput(input)
+		if !ok {
+			continue
+		}
+		key := strings.ToLower(category)
+		if _, exists := responses[key]; exists {
+			continue
+		}
+		responses[key] = response
+	}
+	return responses
+}
+
+func parseEdgeCaseInput(input string) (string, string, bool) {
+	if key, value, ok := strings.Cut(input, "="); ok {
+		return strings.TrimSpace(key), strings.TrimSpace(value), true
+	}
+	if key, value, ok := strings.Cut(input, ":"); ok {
+		return strings.TrimSpace(key), strings.TrimSpace(value), true
+	}
+	return "", "", false
+}
+
+func edgeCaseNAReason(response string) (string, bool) {
+	response = strings.TrimSpace(response)
+	if len(response) < 3 || !strings.EqualFold(response[:3], "n/a") {
+		return "", false
+	}
+
+	remainder := strings.TrimSpace(response[3:])
+	if !strings.HasPrefix(remainder, ":") {
+		return "", true
+	}
+
+	reason := strings.TrimSpace(strings.TrimPrefix(remainder, ":"))
+	return reason, true
+}
+
 func parseEdgeCaseInputs(inputs []string) ([]EdgeCaseCategory, []Scenario) {
 	var categories []EdgeCaseCategory
 	var scenarios []Scenario
+	responses := edgeCaseResponseMap(inputs)
 	for _, category := range EdgeCaseCategories {
 		entry := EdgeCaseCategory{Category: category}
-		response := ""
-		for _, input := range inputs {
-			key, value, ok := strings.Cut(input, "=")
-			if !ok {
-				key, value, ok = strings.Cut(input, ":")
-			}
-			if !ok || !strings.EqualFold(strings.TrimSpace(key), category) {
-				continue
-			}
-			response = strings.TrimSpace(value)
-			break
-		}
+		response := responses[strings.ToLower(category)]
 		if strings.EqualFold(response, "") {
 			entry.Status = EdgeCategoryNA
 			entry.Reason = "No answer recorded"
 			categories = append(categories, entry)
 			continue
 		}
-		if strings.HasPrefix(strings.ToLower(response), "n/a") {
+		if reason, isNA := edgeCaseNAReason(response); isNA {
 			entry.Status = EdgeCategoryNA
-			entry.Reason = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(response), "n/a"), ":"))
+			entry.Reason = reason
 			if entry.Reason == "" {
 				entry.Reason = "Marked not applicable"
 			}

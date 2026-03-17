@@ -101,6 +101,89 @@ func TestCreateRunRequiresExplicitCurlModeAndReasoning(t *testing.T) {
 	}
 }
 
+func TestCreateRunRequiresExplicitEdgeCaseCoverage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		name      string
+		inputs    []string
+		wantError string
+	}{
+		{
+			name: "missing category",
+			inputs: []string{
+				"validation and malformed input=bad email shows validation",
+				"empty or missing input=n/a: covered elsewhere",
+				"retry or double-submit=double submit is ignored",
+				"loading, latency, and race conditions=n/a: not relevant",
+				"network or server failure=n/a: not relevant",
+				"auth and session state=n/a: not relevant",
+				"refresh, back-navigation, and state persistence=n/a: not relevant",
+				"mobile or responsive behavior=layout remains usable on mobile",
+				"accessibility and keyboard behavior=n/a: not relevant",
+			},
+			wantError: `missing required edge-case coverage for "any feature-specific risks"`,
+		},
+		{
+			name: "na without reason",
+			inputs: []string{
+				"validation and malformed input=bad email shows validation",
+				"empty or missing input=n/a",
+				"retry or double-submit=double submit is ignored",
+				"loading, latency, and race conditions=n/a: not relevant",
+				"network or server failure=n/a: not relevant",
+				"auth and session state=n/a: not relevant",
+				"refresh, back-navigation, and state persistence=n/a: not relevant",
+				"mobile or responsive behavior=layout remains usable on mobile",
+				"accessibility and keyboard behavior=n/a: not relevant",
+				"any feature-specific risks=n/a: not relevant",
+			},
+			wantError: `edge-case "empty or missing input" must use "N/A: reason"`,
+		},
+		{
+			name: "scenario list without concrete scenarios",
+			inputs: []string{
+				"validation and malformed input=bad email shows validation",
+				"empty or missing input=n/a: covered elsewhere",
+				"retry or double-submit= ; ",
+				"loading, latency, and race conditions=n/a: not relevant",
+				"network or server failure=n/a: not relevant",
+				"auth and session state=n/a: not relevant",
+				"refresh, back-navigation, and state persistence=n/a: not relevant",
+				"mobile or responsive behavior=layout remains usable on mobile",
+				"accessibility and keyboard behavior=n/a: not relevant",
+				"any feature-specific risks=n/a: not relevant",
+			},
+			wantError: `edge-case "retry or double-submit" must list one or more concrete scenarios or use "N/A: reason"`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := CreateRun(store, repo, StartOptions{
+				Feature:        "edge-case validation",
+				BrowserURL:     "http://127.0.0.1:3000/login",
+				CurlMode:       "skip",
+				CurlSkipReason: "No backend coverage needed for this test",
+				HappyPath:      "happy",
+				FailurePath:    "failure",
+				EdgeCaseInputs: tc.inputs,
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
+			}
+		})
+	}
+}
+
 func TestCreateRunSupportsScenarioLevelCurlRequirements(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
