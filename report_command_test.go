@@ -46,6 +46,46 @@ func TestRunReportRegeneratesReportFiles(t *testing.T) {
 	}
 }
 
+func TestRunReportDoesNotMutateRunStatus(t *testing.T) {
+	proctorHome := t.TempDir()
+	t.Setenv("PROCTOR_HOME", proctorHome)
+
+	repoRoot := t.TempDir()
+	store, err := proctor.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := proctor.CreateRun(store, repoRoot, testStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run is freshly created with no evidence — status should be in_progress.
+	before, err := store.LoadRun(proctor.RepoRoot(repoRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Status != "in_progress" {
+		t.Fatalf("expected initial status in_progress, got %q", before.Status)
+	}
+
+	// Running proctor report should regenerate reports but not touch status.
+	if err := runReport(store, repoRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := store.LoadRun(proctor.RepoRoot(repoRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "in_progress" {
+		t.Fatalf("expected proctor report to preserve in_progress status, got %q", after.Status)
+	}
+
+	_ = run
+}
+
 func testStartOptions() proctor.StartOptions {
 	inputs := make([]string, 0, len(proctor.EdgeCaseCategories))
 	for _, category := range proctor.EdgeCaseCategories {

@@ -338,7 +338,7 @@ func runReport(store *proctor.Store, cwd string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := proctor.CompleteRun(store, run); err != nil {
+	if err := proctor.WriteReports(store, run); err != nil {
 		return err
 	}
 	fmt.Printf("Contract: %s\n", filepath.Join(store.RunDir(run), "contract.md"))

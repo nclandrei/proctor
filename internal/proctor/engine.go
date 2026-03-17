@@ -617,6 +617,10 @@ func CompleteRun(store *Store, run Run) (Evaluation, error) {
 	return eval, nil
 }
 
+func WriteReports(store *Store, run Run) error {
+	return writeReports(store, run)
+}
+
 func writeReports(store *Store, run Run) error {
 	eval, err := Evaluate(store, run)
 	if err != nil {
