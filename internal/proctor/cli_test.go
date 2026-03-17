@@ -19,7 +19,7 @@ func TestCreateRunCLIRequiresCLICommandAndRejectsWebOnlyFlags(t *testing.T) {
 	}
 
 	_, err = CreateRun(store, repo, StartOptions{
-		Surface:     RunSurfaceCLI,
+		Platform:    PlatformCLI,
 		Feature:     "cli run without command",
 		HappyPath:   "happy",
 		FailurePath: "failure",
@@ -29,7 +29,7 @@ func TestCreateRunCLIRequiresCLICommandAndRejectsWebOnlyFlags(t *testing.T) {
 	}
 
 	_, err = CreateRun(store, repo, StartOptions{
-		Surface:        RunSurfaceCLI,
+		Platform:       PlatformCLI,
 		Feature:        "cli run with url",
 		CLICommand:     "demo help",
 		BrowserURL:     "http://127.0.0.1:3000",
@@ -299,7 +299,7 @@ func TestCLIFailAssertUsesFinalizeSemanticsLikeOtherSurfaces(t *testing.T) {
 
 func sampleCLIStartOptions() StartOptions {
 	return StartOptions{
-		Surface:        RunSurfaceCLI,
+		Platform:       PlatformCLI,
 		Feature:        "cli prompt inspection",
 		CLICommand:     "demo help",
 		HappyPath:      "help output is readable",
@@ -309,8 +309,8 @@ func sampleCLIStartOptions() StartOptions {
 }
 
 func cliNAEdgeCases() []string {
-	inputs := make([]string, 0, len(EdgeCaseCategoriesForSurface(RunSurfaceCLI)))
-	for _, category := range EdgeCaseCategoriesForSurface(RunSurfaceCLI) {
+	inputs := make([]string, 0, len(EdgeCaseCategoriesForPlatform(PlatformCLI)))
+	for _, category := range EdgeCaseCategoriesForPlatform(PlatformCLI) {
 		inputs = append(inputs, category+"=N/A: covered by this test")
 	}
 	return inputs

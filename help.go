@@ -399,9 +399,6 @@ Platform-specific flags:
   cli:
     --cli-command TEXT       Command line the agent is manually exercising
 
-Compatibility alias:
-  --surface web|ios|cli      Legacy alias for --platform
-
 Conditional flags:
   --curl-endpoint TEXT       Repeat once per endpoint when --curl required
                              or once per risky scenario when --curl scenario

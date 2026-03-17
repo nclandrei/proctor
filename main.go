@@ -66,10 +66,8 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	fs.SetOutput(ioDiscard{})
 	var endpoints stringList
 	var edgeCases stringList
-	var legacySurface string
 	opts := proctor.StartOptions{}
 	fs.StringVar(&opts.Platform, "platform", proctor.PlatformWeb, "")
-	fs.StringVar(&legacySurface, "surface", "", "")
 	fs.StringVar(&opts.Feature, "feature", "", "")
 	fs.StringVar(&opts.BrowserURL, "url", "", "")
 	fs.StringVar(&opts.CLICommand, "cli-command", "", "")
@@ -85,10 +83,6 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(legacySurface) != "" {
-		opts.Platform = legacySurface
-	}
-	opts.Surface = opts.Platform
 	opts.CurlEndpoints = endpoints
 	opts.EdgeCaseInputs = edgeCases
 	if err := fillStartPrompts(os.Stdin, os.Stdout, &opts); err != nil {
@@ -352,13 +346,9 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 
 	platform := strings.TrimSpace(opts.Platform)
 	if platform == "" {
-		platform = strings.TrimSpace(opts.Surface)
-	}
-	if platform == "" {
 		platform = proctor.PlatformWeb
 	}
 	opts.Platform = platform
-	opts.Surface = platform
 
 	if strings.TrimSpace(opts.Feature) == "" {
 		if opts.Feature, err = prompt(reader, out, "Feature / flow name"); err != nil {
@@ -366,7 +356,7 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 		}
 	}
 
-	switch proctor.NormalizeRunSurface(platform) {
+	switch proctor.NormalizePlatform(platform) {
 	case proctor.PlatformIOS:
 		if strings.TrimSpace(opts.IOSScheme) == "" {
 			if opts.IOSScheme, err = prompt(reader, out, "iOS scheme"); err != nil {
@@ -411,7 +401,7 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 			opts.EdgeCaseInputs = append(opts.EdgeCaseInputs, category+"="+answer)
 		}
 	}
-	if proctor.NormalizeRunSurface(platform) != proctor.PlatformCLI {
+	if proctor.NormalizePlatform(platform) != proctor.PlatformCLI {
 		if strings.TrimSpace(opts.CurlMode) == "" {
 			if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/scenario/skip)"); err != nil {
 				return err

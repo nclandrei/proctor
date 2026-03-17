@@ -488,7 +488,7 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	}
 
 	eval := Evaluation{Complete: true}
-	platform := normalizePlatform(firstNonEmpty(run.Platform, run.Surface))
+	platform := normalizePlatform(run.Platform)
 	hasDesktop := true
 	hasMobile := true
 	hasIOSScreenshot := true

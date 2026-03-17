@@ -28,7 +28,7 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 
 	startArgs := []string{
 		"start",
-		"--surface", "cli",
+		"--platform", "cli",
 		"--feature", "cli integration flow",
 		"--cli-command", "demo help",
 		"--happy-path", "help output is readable",
@@ -137,8 +137,8 @@ func writeIntegrationFixture(t *testing.T, dir, name, content string) string {
 }
 
 func cliIntegrationNAEdgeCases() []string {
-	inputs := make([]string, 0, len(proctor.EdgeCaseCategoriesForSurface(proctor.RunSurfaceCLI)))
-	for _, category := range proctor.EdgeCaseCategoriesForSurface(proctor.RunSurfaceCLI) {
+	inputs := make([]string, 0, len(proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformCLI)))
+	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformCLI) {
 		inputs = append(inputs, category+"=N/A: covered by this integration test")
 	}
 	return inputs

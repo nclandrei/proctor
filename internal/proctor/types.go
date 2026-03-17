@@ -10,10 +10,6 @@ const (
 	PlatformIOS = "ios"
 	PlatformCLI = "cli"
 
-	RunSurfaceWeb = PlatformWeb
-	RunSurfaceIOS = PlatformIOS
-	RunSurfaceCLI = PlatformCLI
-
 	SurfaceBrowser = "browser"
 	SurfaceIOS     = "ios"
 	SurfaceCurl    = "curl"
@@ -92,12 +88,8 @@ func EdgeCaseCategoriesForPlatform(platform string) []string {
 	}
 }
 
-func NormalizeRunSurface(surface string) string {
-	return normalizePlatform(surface)
-}
-
-func EdgeCaseCategoriesForSurface(surface string) []string {
-	return EdgeCaseCategoriesForPlatform(surface)
+func NormalizePlatform(platform string) string {
+	return normalizePlatform(platform)
 }
 
 type Run struct {

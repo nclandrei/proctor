@@ -44,15 +44,15 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios)
 	edgeCoverage := edgeCoverageRows(run)
 	curlRequirements := curlRequirementRows(run)
-	runSurface := NormalizeRunSurface(run.Surface)
+	runSurface := normalizePlatform(run.Platform)
 
 	var md strings.Builder
 	md.WriteString(fmt.Sprintf("# %s\n\n", run.Feature))
 	md.WriteString(fmt.Sprintf("- Run ID: `%s`\n", run.ID))
-	md.WriteString(fmt.Sprintf("- Platform: `%s`\n", normalizePlatform(firstNonEmpty(run.Platform, run.Surface))))
+	md.WriteString(fmt.Sprintf("- Platform: `%s`\n", normalizePlatform(run.Platform)))
 	md.WriteString(fmt.Sprintf("- Verification surface: `%s`\n", surfaceTitle(runSurface)))
 	switch runSurface {
-	case RunSurfaceCLI:
+	case PlatformCLI:
 		md.WriteString(fmt.Sprintf("- CLI command: `%s`\n", run.CLICommand))
 	case PlatformIOS:
 		md.WriteString(fmt.Sprintf("- iOS scheme: `%s`\n", run.IOS.Scheme))
@@ -113,7 +113,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 		}
 
 		for _, item := range scenario.Evidence {
-			md.WriteString(fmt.Sprintf("\n#### %s Evidence\n\n", strings.Title(item.Surface)))
+			md.WriteString(fmt.Sprintf("\n#### %s Evidence\n\n", titleCase(item.Surface)))
 			for _, line := range evidenceSummaryLines(item) {
 				md.WriteString(fmt.Sprintf("- %s\n", line))
 			}
@@ -157,7 +157,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 	}
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"join":                 strings.Join,
-		"title":                strings.Title,
+		"title":                titleCase,
 		"evidenceSummaryLines": evidenceSummaryLines,
 		"reportStatus":         reportStatus,
 		"scenarioComplete":     scenarioComplete,
@@ -962,6 +962,13 @@ func artifactMediaType(artifact Artifact) string {
 	return "application/octet-stream"
 }
 
+func titleCase(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
 func textLineCount(value string) int {
 	if value == "" {
 		return 0
@@ -1135,20 +1142,20 @@ func surfaceTitle(surface string) string {
 	case SurfaceCLI:
 		return "CLI"
 	default:
-		return strings.Title(surface)
+		return titleCase(surface)
 	}
 }
 
 func runHasHTTPSummary(run Run) bool {
-	return normalizePlatform(firstNonEmpty(run.Platform, run.Surface)) != PlatformCLI
+	return normalizePlatform(run.Platform) != PlatformCLI
 }
 
 func runSurfaceLabel(run Run) string {
-	return surfaceTitle(normalizePlatform(firstNonEmpty(run.Platform, run.Surface)))
+	return surfaceTitle(normalizePlatform(run.Platform))
 }
 
 func runTargetLabel(run Run) string {
-	switch normalizePlatform(firstNonEmpty(run.Platform, run.Surface)) {
+	switch normalizePlatform(run.Platform) {
 	case PlatformIOS:
 		return "iOS Target"
 	case PlatformCLI:
@@ -1159,7 +1166,7 @@ func runTargetLabel(run Run) string {
 }
 
 func runTargetValue(run Run) string {
-	switch normalizePlatform(firstNonEmpty(run.Platform, run.Surface)) {
+	switch normalizePlatform(run.Platform) {
 	case PlatformIOS:
 		target := firstNonEmpty(run.IOS.Scheme, run.IOS.BundleID)
 		if strings.TrimSpace(run.IOS.Scheme) != "" && strings.TrimSpace(run.IOS.BundleID) != "" {

@@ -62,7 +62,7 @@ func printRunRecommendations(out io.Writer, heading string, run proctor.Run, eva
 }
 
 func runRecommendationLines(run proctor.Run, eval *proctor.Evaluation, tools captureTools) []string {
-	platform := proctor.NormalizeRunSurface(nonEmpty(run.Platform, run.Surface))
+	platform := proctor.NormalizePlatform(run.Platform)
 	includeCurl := false
 
 	switch {
@@ -95,7 +95,7 @@ func runRecommendationLines(run proctor.Run, eval *proctor.Evaluation, tools cap
 
 func platformRecommendationLines(platform string, includeCurl bool, tools captureTools) []string {
 	var lines []string
-	switch proctor.NormalizeRunSurface(platform) {
+	switch proctor.NormalizePlatform(platform) {
 	case proctor.PlatformIOS:
 		lines = append(lines, iosRecommendationLine(tools))
 	case proctor.PlatformCLI:
@@ -230,13 +230,4 @@ func sliceContainsSubstring(values []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-func nonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }

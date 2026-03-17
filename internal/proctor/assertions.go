@@ -512,10 +512,6 @@ func coveredAssertionKeys(expressions, failingExpressions []string) map[string]b
 	return covered
 }
 
-func coveredBrowserKeys(expressions, failingExpressions []string) map[string]bool {
-	return coveredAssertionKeys(expressions, failingExpressions)
-}
-
 func implicitBrowserAssertions(covered map[string]bool, data BrowserData) []Assertion {
 	var assertions []Assertion
 	appendDevice := func(prefix string) {
