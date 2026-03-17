@@ -13,6 +13,8 @@ import (
 	"github.com/nclandrei/proctor/internal/proctor"
 )
 
+var version = "dev"
+
 type stringList []string
 
 func (s *stringList) String() string { return strings.Join(*s, ",") }
@@ -29,6 +31,11 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && (args[0] == "version" || args[0] == "--version") {
+		fmt.Printf("proctor %s\n", version)
+		return nil
+	}
+
 	if text, ok, err := commandHelp(args); err != nil {
 		return err
 	} else if ok {

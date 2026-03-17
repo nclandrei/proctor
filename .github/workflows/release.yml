@@ -62,7 +62,7 @@ jobs:
             mkdir -p "${staging}"
 
             GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
-              go build -trimpath -ldflags='-s -w' -o "${staging}/proctor" .
+              go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_VERSION#v}" -o "${staging}/proctor" .
 
             tar -C "${staging}" -czf "${archive}" proctor
             sha256sum "${archive}" | awk '{print $1}' > "${archive}.sha256"
