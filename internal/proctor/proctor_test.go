@@ -1,6 +1,10 @@
 package proctor
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -569,6 +573,23 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/login" {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("mode") == "failure" {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"error":"invalid"}`)
+			return
+		}
+
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
 	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
 	successReport := writeFixture(t, repo, "success-report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
@@ -632,7 +653,7 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 
 	if err := RecordCurl(store, run, CurlRecordOptions{
 		ScenarioID: "happy-path",
-		Command:    []string{"/bin/sh", "-lc", "printf 'HTTP/1.1 200 OK\\nContent-Type: application/json\\n\\n{\"ok\":true}'"},
+		Command:    curlHelperCommand("http", "POST", server.URL+"/api/login"),
 		PassAssertions: []string{
 			"status = 200",
 			"header.content-type contains application/json",
@@ -643,7 +664,7 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 	}
 	if err := RecordCurl(store, run, CurlRecordOptions{
 		ScenarioID: "failure-path",
-		Command:    []string{"/bin/sh", "-lc", "printf 'HTTP/1.1 401 Unauthorized\\nContent-Type: application/json\\n\\n{\"error\":\"invalid\"}'"},
+		Command:    curlHelperCommand("http", "POST", server.URL+"/api/login?mode=failure"),
 		PassAssertions: []string{
 			"status = 401",
 			"body contains invalid",
@@ -915,6 +936,78 @@ func TestCurlEvaluationIncludesFailedAssertionDetails(t *testing.T) {
 	}
 }
 
+func TestEvaluateRequiresRealHTTPResponseAndMatchingCurlEndpointContract(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/session":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"session":"active"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/login":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"ok":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	if err := RecordCurl(store, run, CurlRecordOptions{
+		ScenarioID: "happy-path",
+		Command:    curlHelperCommand("http", "GET", server.URL+"/api/session"),
+		PassAssertions: []string{
+			"status = 200",
+			"body contains active",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RecordCurl(store, run, CurlRecordOptions{
+		ScenarioID: "failure-path",
+		Command:    curlHelperCommand("plain", "not http"),
+		PassAssertions: []string{
+			"exit_code = 0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	happyPathEval := findScenarioEvaluation(t, eval, "happy-path")
+	if happyPathEval.CurlOK {
+		t.Fatalf("expected happy-path curl evidence to fail when the wrapped request misses the declared endpoint contract")
+	}
+	if !containsSubstring(happyPathEval.CurlIssues, "endpoint") {
+		t.Fatalf("expected happy-path curl issues to mention the endpoint contract, got %#v", happyPathEval.CurlIssues)
+	}
+
+	failurePathEval := findScenarioEvaluation(t, eval, "failure-path")
+	if failurePathEval.CurlOK {
+		t.Fatalf("expected failure-path curl evidence to fail without a real HTTP response")
+	}
+	if !containsSubstring(failurePathEval.CurlIssues, "HTTP response") {
+		t.Fatalf("expected failure-path curl issues to mention the missing HTTP response, got %#v", failurePathEval.CurlIssues)
+	}
+}
+
 func TestMobileScreenshotRequiresMobileReportResults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
@@ -1183,6 +1276,90 @@ func desktopCoverageOnlyStartOptions() StartOptions {
 		FailurePath:    "failure path also stays on dashboard for this test",
 		EdgeCaseInputs: inputs,
 	}
+}
+
+func findScenarioEvaluation(t *testing.T, eval Evaluation, scenarioID string) ScenarioEvaluation {
+	t.Helper()
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.ID == scenarioID {
+			return item
+		}
+	}
+	t.Fatalf("missing scenario evaluation for %s", scenarioID)
+	return ScenarioEvaluation{}
+}
+
+func curlHelperCommand(mode string, args ...string) []string {
+	command := []string{os.Args[0], "-test.run=TestCurlRecordHelperProcess", "--", mode}
+	command = append(command, args...)
+	return command
+}
+
+func TestCurlRecordHelperProcess(t *testing.T) {
+	if !strings.Contains(strings.Join(os.Args, " "), "TestCurlRecordHelperProcess") {
+		return
+	}
+
+	args := os.Args
+	marker := -1
+	for idx, arg := range args {
+		if arg == "--" {
+			marker = idx
+			break
+		}
+	}
+	if marker == -1 || marker+1 >= len(args) {
+		fmt.Fprintln(os.Stderr, "missing helper args")
+		os.Exit(2)
+	}
+
+	mode := args[marker+1]
+	switch mode {
+	case "http":
+		if marker+4 > len(args) {
+			fmt.Fprintln(os.Stderr, "usage: http METHOD URL")
+			os.Exit(2)
+		}
+		method := args[marker+2]
+		url := args[marker+3]
+		req, err := http.NewRequest(method, url, nil)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode))
+		for name, values := range resp.Header {
+			for _, value := range values {
+				fmt.Printf("%s: %s\r\n", name, value)
+			}
+		}
+		fmt.Print("\r\n")
+		fmt.Print(string(body))
+	case "plain":
+		if marker+2 >= len(args) {
+			fmt.Fprintln(os.Stderr, "usage: plain TEXT")
+			os.Exit(2)
+		}
+		fmt.Print(args[marker+2])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown helper mode %q\n", mode)
+		os.Exit(2)
+	}
+
+	os.Exit(0)
 }
 
 func sampleBrowserReport(finalURL string, consoleErrors, pageErrors, failedRequests, httpErrors int) string {

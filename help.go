@@ -539,7 +539,8 @@ Important:
   - browser evidence attaches one browser run to one named scenario
   - cli evidence attaches one terminal session run to one named scenario
   - ios evidence attaches one simulator run to one named scenario
-  - curl evidence wraps one real command for one named scenario
+  - curl evidence wraps one real HTTP command for one named scenario
+  - curl evidence must produce a real HTTP response and match one declared curl endpoint for that scenario
   - curl requirements are decided per scenario, not by endpoint alone
   - only recorded evidence counts toward proctor done
 `
@@ -767,7 +768,7 @@ Usage:
 Required:
   --scenario ID              Scenario id from contract.md or proctor status
   --assert TEXT              At least one passing assertion
-  -- <command>               Real curl command or equivalent HTTP client command
+  -- <command>               Real curl command or equivalent HTTP client command that returns an HTTP response
 
 Optional:
   --fail-assert TEXT         Invert one assertion when you need to prove a failure condition
@@ -791,7 +792,8 @@ Example:
       -d '{"email":"demo@example.com","password":"wrong"}'
 
 Use the scenario ids from the contract. If proctor start used --curl scenario,
-only the named risky scenarios need curl evidence.
+only the named risky scenarios need curl evidence. The wrapped request must
+match one of that scenario's declared curl endpoints.
 `
 }
 

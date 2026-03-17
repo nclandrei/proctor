@@ -57,6 +57,9 @@ func TestHelpCommandSupportsNestedTopics(t *testing.T) {
 	if !strings.Contains(text, "-- <command>") {
 		t.Fatalf("expected curl help to describe wrapped command syntax, got:\n%s", text)
 	}
+	if !strings.Contains(text, "match one of that scenario's declared curl endpoints") {
+		t.Fatalf("expected curl help to mention endpoint contract enforcement, got:\n%s", text)
+	}
 }
 
 func TestCommandHelpSupportsIOSNestedSubcommandsWithoutActiveRun(t *testing.T) {

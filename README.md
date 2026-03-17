@@ -94,7 +94,7 @@ proctor start \
   --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 ```
 
-`curl` is decided per scenario. `--curl scenario` is the explicit risk-based mode, and each `--curl-endpoint` entry binds one or more endpoints to a named scenario. `--curl required` remains as a shorthand for requiring curl on both the happy path and failure path.
+`curl` is decided per scenario. `--curl scenario` is the explicit risk-based mode, and each `--curl-endpoint` entry binds one or more endpoints to a named scenario. `--curl required` remains as a shorthand for requiring curl on both the happy path and failure path. `proctor done` enforces that recorded curl evidence produces a real HTTP response and that the wrapped command matches one of the scenario's declared endpoints.
 
 If the flow is mostly client-side and there is no meaningful backend or protocol risk, skip `curl` with an explicit reason:
 
@@ -298,7 +298,7 @@ proctor record cli \
 
 ### 6. Attach HTTP Evidence When Required
 
-When a scenario requires `curl`, wrap the real command:
+When a scenario requires `curl`, wrap the real HTTP command that hits one of the scenario's declared `--curl-endpoint` contracts:
 
 ```bash
 proctor record curl \
@@ -360,13 +360,15 @@ For CLI evidence, Proctor expects:
 
 For curl evidence, Proctor expects:
 
-- a real wrapped command
+- a real wrapped HTTP command
+- a parsed HTTP response
+- a wrapped request whose method and path match one of the scenario's declared endpoints
 - the captured transcript
 - at least one passing assertion
 
 Provenance alone is not enough. Evidence must also include scenario-specific assertions.
 
-`curl` is gated per scenario, not per endpoint. Endpoints are recorded on each scenario so the contract can say which HTTP surfaces carry risk, but `proctor done` still evaluates evidence scenario-by-scenario.
+`curl` is gated per scenario, not per endpoint. Endpoints are recorded on each scenario so the contract can say which HTTP surfaces carry risk, and `proctor done` enforces those scenario-level HTTP contracts scenario-by-scenario.
 
 ## Browser Assertions
 

@@ -3,6 +3,7 @@ package proctor
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -516,7 +517,7 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 		}
 
 		if scenario.CurlRequired {
-			scenarioEval.CurlOK, scenarioEval.CurlIssues = validateCurlEvidence(store, run, curlEvidence)
+			scenarioEval.CurlOK, scenarioEval.CurlIssues = validateCurlEvidence(store, run, scenario, curlEvidence)
 			if !scenarioEval.CurlOK {
 				eval.Complete = false
 			}
@@ -939,19 +940,19 @@ func validateIOSEvidence(store *Store, run Run, items []Evidence) (bool, []strin
 	return false, dedupeStrings(issues)
 }
 
-func validateCurlEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+func validateCurlEvidence(store *Store, run Run, scenario Scenario, items []Evidence) (bool, []string) {
 	if len(items) == 0 {
 		return false, []string{"missing curl evidence"}
 	}
 	for _, item := range items {
-		issues := curlEvidenceIssues(store, run, item)
+		issues := curlEvidenceIssues(store, run, scenario, item)
 		if len(issues) == 0 {
 			return true, nil
 		}
 	}
 	var issues []string
 	for _, item := range items {
-		issues = append(issues, curlEvidenceIssues(store, run, item)...)
+		issues = append(issues, curlEvidenceIssues(store, run, scenario, item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -1118,7 +1119,7 @@ func iosReportStructureIssues(item Evidence) []string {
 	return issues
 }
 
-func curlEvidenceIssues(store *Store, run Run, item Evidence) []string {
+func curlEvidenceIssues(store *Store, run Run, scenario Scenario, item Evidence) []string {
 	var issues []string
 	if item.Tier < TierWrappedCommand {
 		issues = append(issues, fmt.Sprintf("curl evidence tier %d is below required tier %d", item.Tier, TierWrappedCommand))
@@ -1126,6 +1127,12 @@ func curlEvidenceIssues(store *Store, run Run, item Evidence) []string {
 	if len(item.Provenance.Command) == 0 {
 		issues = append(issues, "curl evidence is missing a wrapped command")
 	}
+	if item.Curl == nil {
+		issues = append(issues, "curl evidence is missing parsed HTTP response data")
+	} else if item.Curl.ResponseStatus == 0 {
+		issues = append(issues, "curl evidence is missing a real HTTP response")
+	}
+	issues = append(issues, curlEndpointContractIssues(scenario, item)...)
 	issues = append(issues, assertionIssues(item.Assertions, "curl")...)
 
 	hasTranscript := false
@@ -1142,6 +1149,164 @@ func curlEvidenceIssues(store *Store, run Run, item Evidence) []string {
 		issues = append(issues, "curl evidence is missing a transcript")
 	}
 	return dedupeStrings(issues)
+}
+
+func curlEndpointContractIssues(scenario Scenario, item Evidence) []string {
+	if len(scenario.CurlEndpoints) == 0 {
+		return nil
+	}
+
+	command := item.Provenance.Command
+	if len(command) == 0 && item.Curl != nil {
+		command = item.Curl.Command
+	}
+	method, path, ok := inferHTTPCommandTarget(command)
+	if !ok {
+		return []string{"curl evidence command does not expose an HTTP method and URL required to match the scenario endpoint contract"}
+	}
+
+	for _, endpoint := range scenario.CurlEndpoints {
+		expectedMethod, expectedPath, ok := parseCurlEndpointContract(endpoint)
+		if !ok {
+			continue
+		}
+		if method == expectedMethod && path == expectedPath {
+			return nil
+		}
+	}
+
+	return []string{
+		fmt.Sprintf(
+			"curl evidence command %s %s does not match the scenario endpoint contract (%s)",
+			method,
+			path,
+			strings.Join(scenario.CurlEndpoints, ", "),
+		),
+	}
+}
+
+func parseCurlEndpointContract(endpoint string) (string, string, bool) {
+	fields := strings.Fields(strings.TrimSpace(endpoint))
+	if len(fields) < 2 {
+		return "", "", false
+	}
+	method := strings.ToUpper(fields[0])
+	path, ok := normalizeContractPath(strings.Join(fields[1:], " "))
+	if !ok {
+		return "", "", false
+	}
+	return method, path, true
+}
+
+func inferHTTPCommandTarget(command []string) (string, string, bool) {
+	tokens := flattenCommandTokens(command)
+	if len(tokens) == 0 {
+		return "", "", false
+	}
+
+	method := ""
+	urlValue := ""
+	hasBodyFlag := false
+	for idx := 0; idx < len(tokens); idx++ {
+		token := normalizeCommandToken(tokens[idx])
+		if token == "" {
+			continue
+		}
+
+		lowerToken := strings.ToLower(token)
+		switch lowerToken {
+		case "-x", "--request", "--method":
+			if idx+1 < len(tokens) {
+				if candidate := normalizeCommandToken(tokens[idx+1]); isHTTPMethod(candidate) {
+					method = strings.ToUpper(candidate)
+				}
+			}
+		case "-d", "--data", "--data-raw", "--data-binary", "--data-urlencode":
+			hasBodyFlag = true
+		default:
+			if token == "-F" || lowerToken == "--form" {
+				hasBodyFlag = true
+				continue
+			}
+			if method == "" && isHTTPMethod(token) {
+				method = strings.ToUpper(token)
+				continue
+			}
+			if requestPath, ok := extractRequestPath(token); ok {
+				urlValue = requestPath
+			}
+		}
+	}
+
+	if urlValue == "" {
+		return "", "", false
+	}
+	if method == "" {
+		if hasBodyFlag {
+			method = "POST"
+		} else {
+			method = "GET"
+		}
+	}
+	return method, urlValue, true
+}
+
+func flattenCommandTokens(command []string) []string {
+	var tokens []string
+	for _, arg := range command {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			continue
+		}
+		tokens = append(tokens, arg)
+		if strings.ContainsAny(arg, " \t\n") {
+			tokens = append(tokens, strings.Fields(arg)...)
+		}
+	}
+	return tokens
+}
+
+func normalizeCommandToken(token string) string {
+	return strings.Trim(strings.TrimSpace(token), "\"'`")
+}
+
+func isHTTPMethod(token string) bool {
+	switch strings.ToUpper(normalizeCommandToken(token)) {
+	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeContractPath(value string) (string, bool) {
+	value = normalizeCommandToken(value)
+	if value == "" {
+		return "", false
+	}
+	if strings.HasPrefix(value, "/") {
+		path, _, _ := strings.Cut(value, "?")
+		if path == "" {
+			path = "/"
+		}
+		return path, true
+	}
+	return extractRequestPath(value)
+}
+
+func extractRequestPath(value string) (string, bool) {
+	parsed, err := url.Parse(normalizeCommandToken(value))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", false
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return path, true
 }
 
 func cliEvidenceIssues(store *Store, run Run, item Evidence) []string {
