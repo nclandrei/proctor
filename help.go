@@ -58,6 +58,10 @@ func commandHelp(args []string) (string, bool, error) {
 			if wantsHelp(args[2:]) {
 				return recordIOSHelpText(), true, nil
 			}
+		case "desktop":
+			if wantsHelp(args[2:]) {
+				return recordDesktopHelpText(), true, nil
+			}
 		case "curl":
 			if wantsHelp(args[2:]) {
 				return recordCurlHelpText(), true, nil
@@ -96,6 +100,8 @@ func topicHelp(args []string) (string, error) {
 			return recordCLIHelpText(), nil
 		case "ios":
 			return recordIOSHelpText(), nil
+		case "desktop":
+			return recordDesktopHelpText(), nil
 		case "curl":
 			return recordCurlHelpText(), nil
 		default:
@@ -268,6 +274,61 @@ Typical CLI workflow:
     --assert 'exit_code = 0' \
     --assert 'screenshot = true'
 
+Typical desktop workflow:
+  proctor start \
+    --platform desktop \
+    --feature "bookmark manager" \
+    --app-name "Firefox" \
+    --curl skip \
+    --curl-skip-reason "UI-only desktop verification" \
+    --happy-path "Bookmark manager opens and lists saved bookmarks." \
+    --failure-path "Empty bookmark list shows a helpful prompt." \
+    --edge-case "validation and malformed input=N/A: no freeform input in this flow" \
+    --edge-case "empty or missing input=N/A: no required input in this flow" \
+    --edge-case "retry or double-submit=N/A: no repeated mutation in this flow" \
+    --edge-case "loading, latency, and race conditions=N/A: instant local operation" \
+    --edge-case "network or server failure=N/A: no backend dependency in this flow" \
+    --edge-case "auth and session state=N/A: no authentication required" \
+    --edge-case "window management, resize, and multi-monitor=N/A: covered elsewhere" \
+    --edge-case "drag-drop, clipboard, and system integration=N/A: no drag-drop in this flow" \
+    --edge-case "keyboard shortcuts and accessibility=N/A: this pass is visual only" \
+    --edge-case "any feature-specific risks=N/A: no additional risks"
+
+  # Use peekaboo or screencapture to capture window screenshots without stealing focus:
+  #   peekaboo see --app Firefox --mode window --path /tmp/firefox.png --json
+  #   Write desktop-report.json from the captured data.
+  proctor record desktop \
+    --scenario happy-path \
+    --session firefox-desktop-1 \
+    --report /abs/path/desktop-report.json \
+    --screenshot window=/abs/path/window.png \
+    --assert 'app_name contains Firefox' \
+    --assert 'crashes = 0'
+
+What counts as desktop evidence:
+  - a desktop session id string
+  - at least one window screenshot
+  - a desktop-report.json artifact with app metadata and issue counts
+  - assertions tied to the scenario
+
+The desktop report only needs a small shape:
+  {
+    "app": {
+      "name": "Firefox",
+      "bundleId": "org.mozilla.firefox",
+      "state": "running",
+      "windowTitle": "Bookmark Manager"
+    },
+    "issues": {
+      "crashes": 0,
+      "fatalLogs": 0
+    }
+  }
+
+Use your own window capture tooling. Peekaboo is recommended because it uses
+ScreenCaptureKit for background capture without stealing focus. Fallback:
+screencapture -x -l <windowID> plus osascript for window metadata.
+
 What counts as browser evidence:
   - a session id string for the browser run
   - a desktop screenshot
@@ -353,6 +414,7 @@ Use subcommand help for exact flags:
   proctor record browser --help
   proctor record cli --help
   proctor record ios --help
+  proctor record desktop --help
   proctor record curl --help
   proctor done --help
 
@@ -379,7 +441,8 @@ user-visible change that actually needs verification. Do not substitute a
 generic smoke test that is unrelated to the current diff.
 
 Required:
-  --platform web|ios|cli     Defaults to web
+  --platform web|ios|cli|desktop
+                             Defaults to web
   --feature TEXT             Human label for the feature or flow under test
   --happy-path TEXT          Primary success scenario
   --failure-path TEXT        Primary failure or back-out scenario
@@ -394,6 +457,11 @@ Platform-specific flags:
     --ios-scheme TEXT        Xcode scheme or app target name
     --ios-bundle-id TEXT     App bundle id to launch on the simulator
     --ios-simulator TEXT     Optional simulator label to pin the intended device
+    --curl required|scenario|skip
+                             HTTP verification mode for the contract
+  desktop:
+    --app-name TEXT          Name of the desktop application under test
+    --app-bundle-id TEXT     Optional macOS bundle identifier
     --curl required|scenario|skip
                              HTTP verification mode for the contract
   cli:
@@ -431,6 +499,10 @@ Web categories:
 	}
 	b.WriteString("\nCLI categories:\n")
 	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformCLI) {
+		b.WriteString("  - " + category + "\n")
+	}
+	b.WriteString("\nDesktop categories:\n")
+	for _, category := range proctor.EdgeCaseCategoriesForPlatform(proctor.PlatformDesktop) {
 		b.WriteString("  - " + category + "\n")
 	}
 	b.WriteString(`
@@ -517,10 +589,31 @@ CLI example:
     --edge-case "stderr, exit codes, and partial failure reporting=Unknown prompt returns a non-zero exit code and prints the error on stderr" \
     --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 
+Desktop example:
+  proctor start \
+    --platform desktop \
+    --feature "Firefox bookmark manager" \
+    --app-name "Firefox" \
+    --app-bundle-id "org.mozilla.firefox" \
+    --curl skip \
+    --curl-skip-reason "UI-only desktop verification" \
+    --happy-path "Bookmark manager opens and lists saved bookmarks." \
+    --failure-path "Empty bookmark list shows a helpful prompt." \
+    --edge-case "validation and malformed input=N/A: no freeform input in this flow" \
+    --edge-case "empty or missing input=N/A: no required input in this flow" \
+    --edge-case "retry or double-submit=N/A: no repeated mutation in this flow" \
+    --edge-case "loading, latency, and race conditions=N/A: instant local operation" \
+    --edge-case "network or server failure=N/A: no backend dependency in this flow" \
+    --edge-case "auth and session state=N/A: no authentication required" \
+    --edge-case "window management, resize, and multi-monitor=Bookmark manager resizes cleanly" \
+    --edge-case "drag-drop, clipboard, and system integration=N/A: no drag-drop in this flow" \
+    --edge-case "keyboard shortcuts and accessibility=N/A: this pass is visual only" \
+    --edge-case "any feature-specific risks=N/A: no additional risks"
+
 After start:
   - run your platform checks
-  - attach web evidence with proctor record browser, iOS evidence with proctor record ios, or terminal evidence with proctor record cli
-  - wrap curl with proctor record curl for the scenarios that require it on web or ios runs
+  - attach web evidence with proctor record browser, iOS evidence with proctor record ios, desktop evidence with proctor record desktop, or terminal evidence with proctor record cli
+  - wrap curl with proctor record curl for the scenarios that require it on web, ios, or desktop runs
   - finish with proctor done
 `)
 	b.WriteString(allPlatformRecommendationSection())
@@ -534,18 +627,21 @@ Usage:
   proctor record browser [flags]
   proctor record cli [flags]
   proctor record ios [flags]
+  proctor record desktop [flags]
   proctor record curl [flags] -- <command>
 
 Use:
   proctor record browser --help
   proctor record cli --help
   proctor record ios --help
+  proctor record desktop --help
   proctor record curl --help
 
 Important:
   - browser evidence attaches one browser run to one named scenario
   - cli evidence attaches one terminal session run to one named scenario
   - ios evidence attaches one simulator run to one named scenario
+  - desktop evidence attaches one desktop app session to one named scenario
   - curl evidence wraps one real HTTP command for one named scenario
   - curl evidence must produce a real HTTP response and match one declared curl endpoint for that scenario
   - curl requirements are decided per scenario, not by endpoint alone
@@ -760,6 +856,73 @@ Notes:
   - every ios run must record at least one screenshot before proctor done can pass
   - implicit zero-issue assertions cover launch errors, crashes, and fatal logs
 ` + platformRecommendationSection(proctor.PlatformIOS, true)
+}
+
+func recordDesktopHelpText() string {
+	return `proctor record desktop - attach desktop app evidence to one scenario
+
+Usage:
+  proctor record desktop \
+    --scenario ID \
+    --session SESSION \
+    --report /abs/path/desktop-report.json \
+    --screenshot LABEL=/abs/path/window.png \
+    --assert 'EXPRESSION' \
+    [--assert 'EXPRESSION' ...]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable desktop session label or id string
+  --report PATH              JSON report with app metadata and issue counts
+  --screenshot LABEL=PATH    At least one screenshot from the verified desktop run
+  --assert TEXT              At least one passing assertion
+
+Optional:
+  --tool NAME                Defaults to peekaboo
+  --fail-assert TEXT         Invert one assertion when you need to prove a failure condition
+
+Supported desktop assertions:
+  app_name contains Firefox
+  bundle_id = org.mozilla.firefox
+  state = running
+  window_title contains Bookmarks
+  crashes = 0
+  fatal_logs = 0
+  screenshot = true
+
+Expected report JSON shape:
+  {
+    "app": {
+      "name": "Firefox",
+      "bundleId": "org.mozilla.firefox",
+      "pid": 12345,
+      "state": "running",
+      "windowTitle": "Bookmark Manager"
+    },
+    "issues": {
+      "crashes": 0,
+      "fatalLogs": 0
+    }
+  }
+
+The JSON can be synthesized from real window-capture output. It does not need
+to be emitted by one specific helper.
+
+Example:
+  proctor record desktop \
+    --scenario happy-path \
+    --session firefox-desktop-1 \
+    --report /abs/path/desktop-report.json \
+    --screenshot window=/abs/path/window.png \
+    --assert 'app_name contains Firefox' \
+    --assert 'crashes = 0' \
+    --assert 'screenshot = true'
+
+Notes:
+  - one desktop report can be reused for multiple scenarios if it genuinely proves each one
+  - every desktop run must record at least one screenshot before proctor done can pass
+  - implicit zero-issue assertions cover crashes and fatal logs
+` + platformRecommendationSection(proctor.PlatformDesktop, true)
 }
 
 func recordCurlHelpText() string {

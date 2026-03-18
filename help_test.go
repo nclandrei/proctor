@@ -240,6 +240,68 @@ func TestRecordCLIHelpMentionsTranscriptAndScreenshotRequirements(t *testing.T) 
 	}
 }
 
+func TestCommandHelpSupportsDesktopNestedSubcommandsWithoutActiveRun(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "desktop", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "proctor record desktop") {
+		t.Fatalf("expected desktop help text, got:\n%s", text)
+	}
+	if !strings.Contains(text, "--report /abs/path/desktop-report.json") {
+		t.Fatalf("expected desktop help to include report flag example, got:\n%s", text)
+	}
+	if !strings.Contains(text, "crashes = 0") {
+		t.Fatalf("expected desktop help to include crash assertions, got:\n%s", text)
+	}
+	if !strings.Contains(text, "implicit zero-issue assertions cover crashes and fatal logs") {
+		t.Fatalf("expected desktop help to describe default desktop health policy, got:\n%s", text)
+	}
+}
+
+func TestRootHelpMentionsDesktopWorkflow(t *testing.T) {
+	text, ok, err := commandHelp([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"Typical desktop workflow",
+		"--platform desktop",
+		"--app-name \"Firefox\"",
+		"peekaboo",
+		"proctor record desktop --help",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected root help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
+func TestStartHelpMentionsDesktopPlatform(t *testing.T) {
+	text, ok, err := commandHelp([]string{"start", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"--platform web|ios|cli|desktop",
+		"--app-name TEXT",
+		"window management, resize, and multi-monitor",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected start help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
 func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 	text, ok, err := commandHelp([]string{"start", "--help"})
 	if err != nil {
@@ -249,7 +311,7 @@ func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 		t.Fatal("expected help to be handled")
 	}
 	for _, needle := range []string{
-		"--platform web|ios|cli",
+		"--platform web|ios|cli|desktop",
 		"--cli-command TEXT",
 		"--curl required|scenario|skip",
 		`--curl-endpoint "happy-path=POST /api/login"`,

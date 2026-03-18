@@ -12,14 +12,16 @@ import (
 var lookPathFn = exec.LookPath
 
 type captureTools struct {
-	AgentBrowser bool
-	Playwright   bool
-	Chrome       bool
-	Xcrun        bool
-	Ghostty      bool
-	Tmux         bool
-	Script       bool
-	Curl         bool
+	AgentBrowser  bool
+	Playwright    bool
+	Chrome        bool
+	Xcrun         bool
+	Ghostty       bool
+	Tmux          bool
+	Script        bool
+	Curl          bool
+	Peekaboo      bool
+	Screencapture bool
 }
 
 func detectCaptureTools() captureTools {
@@ -37,14 +39,16 @@ func detectCaptureToolsWithLookPath(lookPath func(string) (string, error)) captu
 	}
 
 	return captureTools{
-		AgentBrowser: has("agent-browser"),
-		Playwright:   has("playwright"),
-		Chrome:       has("google-chrome", "chromium", "chromium-browser"),
-		Xcrun:        has("xcrun"),
-		Ghostty:      has("ghostty"),
-		Tmux:         has("tmux"),
-		Script:       has("script"),
-		Curl:         has("curl"),
+		AgentBrowser:  has("agent-browser"),
+		Playwright:    has("playwright"),
+		Chrome:        has("google-chrome", "chromium", "chromium-browser"),
+		Xcrun:         has("xcrun"),
+		Ghostty:       has("ghostty"),
+		Tmux:          has("tmux"),
+		Script:        has("script"),
+		Curl:          has("curl"),
+		Peekaboo:      has("peekaboo"),
+		Screencapture: has("screencapture"),
 	}
 }
 
@@ -81,6 +85,10 @@ func runRecommendationLines(run proctor.Run, eval *proctor.Evaluation, tools cap
 		if eval == nil || evalNeedsCLI(*eval) {
 			return platformRecommendationLines(platform, false, tools)
 		}
+	case proctor.PlatformDesktop:
+		if eval == nil || evalNeedsDesktop(*eval) {
+			return platformRecommendationLines(platform, includeCurl, tools)
+		}
 	default:
 		if eval == nil || evalNeedsBrowser(*eval) {
 			return platformRecommendationLines(platform, includeCurl, tools)
@@ -100,6 +108,8 @@ func platformRecommendationLines(platform string, includeCurl bool, tools captur
 		lines = append(lines, iosRecommendationLine(tools))
 	case proctor.PlatformCLI:
 		lines = append(lines, cliRecommendationLine(tools))
+	case proctor.PlatformDesktop:
+		lines = append(lines, desktopRecommendationLine(tools))
 	default:
 		lines = append(lines, browserRecommendationLine(tools))
 	}
@@ -123,6 +133,11 @@ func allPlatformRecommendationSection() string {
 	}
 	for _, line := range platformRecommendationLines(proctor.PlatformCLI, false, tools) {
 		b.WriteString("  - " + line + "\n")
+	}
+	for _, line := range platformRecommendationLines(proctor.PlatformDesktop, true, tools) {
+		if !strings.HasPrefix(line, "HTTP:") {
+			b.WriteString("  - " + line + "\n")
+		}
 	}
 	b.WriteString("These are recommendations only. Proctor stays tool-agnostic and accepts any workflow that produces the required artifacts.\n")
 	return b.String()
@@ -171,6 +186,17 @@ func cliRecommendationLine(tools captureTools) string {
 	}
 }
 
+func desktopRecommendationLine(tools captureTools) string {
+	switch {
+	case tools.Peekaboo:
+		return "Desktop: `peekaboo` detected on PATH. Recommended workflow: use `peekaboo see --app <name> --mode window` to capture window screenshots without stealing focus, write `desktop-report.json`, then attach with `proctor record desktop`."
+	case tools.Screencapture:
+		return "Desktop: `screencapture` detected on PATH. Use `screencapture -x -l <windowID>` plus `osascript` to capture window screenshots, write `desktop-report.json`, then attach with `proctor record desktop`."
+	default:
+		return "Desktop: use any workflow that can capture window screenshots and produce `desktop-report.json`; Proctor only cares about the artifacts and assertions."
+	}
+}
+
 func curlRecommendationLine(tools captureTools) string {
 	if tools.Curl {
 		return "HTTP: `curl` is detected on PATH. For risky scenarios, wrap the real request with `proctor record curl --scenario ... -- curl -si ...`."
@@ -205,6 +231,18 @@ func evalNeedsIOS(eval proctor.Evaluation) bool {
 func evalNeedsCLI(eval proctor.Evaluation) bool {
 	for _, item := range eval.ScenarioEvaluations {
 		if item.Scenario.CLIRequired && !item.CLIOK {
+			return true
+		}
+	}
+	return false
+}
+
+func evalNeedsDesktop(eval proctor.Evaluation) bool {
+	if sliceContainsSubstring(eval.GlobalMissing, "desktop app screenshot") {
+		return true
+	}
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.DesktopRequired && !item.DesktopOK {
 			return true
 		}
 	}

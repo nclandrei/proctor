@@ -60,6 +60,11 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 		if strings.TrimSpace(run.IOS.Simulator) != "" {
 			md.WriteString(fmt.Sprintf("- Simulator: `%s`\n", run.IOS.Simulator))
 		}
+	case PlatformDesktop:
+		md.WriteString(fmt.Sprintf("- Desktop app: `%s`\n", run.Desktop.Name))
+		if strings.TrimSpace(run.Desktop.BundleID) != "" {
+			md.WriteString(fmt.Sprintf("- Bundle ID: `%s`\n", run.Desktop.BundleID))
+		}
 	default:
 		md.WriteString(fmt.Sprintf("- Browser URL: `%s`\n", run.BrowserURL))
 	}
@@ -990,6 +995,8 @@ func evidenceSummaryLines(item Evidence) []string {
 		return curlSummaryLines(item)
 	case SurfaceCLI:
 		return cliSummaryLines(item)
+	case SurfaceDesktop:
+		return desktopSummaryLines(item)
 	default:
 		return nil
 	}
@@ -1064,6 +1071,28 @@ func cliSummaryLines(item Evidence) []string {
 	if strings.TrimSpace(item.CLI.TranscriptPreview) != "" {
 		lines = append(lines, fmt.Sprintf("Transcript preview: `%s`", item.CLI.TranscriptPreview))
 	}
+	return lines
+}
+
+func desktopSummaryLines(item Evidence) []string {
+	if item.Desktop == nil {
+		return nil
+	}
+	lines := []string{
+		fmt.Sprintf("Tool: `%s`", item.Desktop.Tool),
+		fmt.Sprintf("Session: `%s`", item.Desktop.SessionID),
+		fmt.Sprintf("App: `%s`", item.Desktop.AppName),
+	}
+	if strings.TrimSpace(item.Desktop.BundleID) != "" {
+		lines = append(lines, fmt.Sprintf("Bundle ID: `%s`", item.Desktop.BundleID))
+	}
+	if strings.TrimSpace(item.Desktop.WindowTitle) != "" {
+		lines = append(lines, fmt.Sprintf("Window title: `%s`", item.Desktop.WindowTitle))
+	}
+	if strings.TrimSpace(item.Desktop.State) != "" {
+		lines = append(lines, fmt.Sprintf("State: `%s`", item.Desktop.State))
+	}
+	lines = append(lines, fmt.Sprintf("Issues: crashes=%d, fatal_logs=%d", item.Desktop.Issues.Crashes, item.Desktop.Issues.FatalLogs))
 	return lines
 }
 
@@ -1147,7 +1176,8 @@ func surfaceTitle(surface string) string {
 }
 
 func runHasHTTPSummary(run Run) bool {
-	return normalizePlatform(run.Platform) != PlatformCLI
+	p := normalizePlatform(run.Platform)
+	return p != PlatformCLI
 }
 
 func runSurfaceLabel(run Run) string {
@@ -1160,6 +1190,8 @@ func runTargetLabel(run Run) string {
 		return "iOS Target"
 	case PlatformCLI:
 		return "CLI Command"
+	case PlatformDesktop:
+		return "Desktop App"
 	default:
 		return "Browser URL"
 	}
@@ -1178,6 +1210,12 @@ func runTargetValue(run Run) string {
 		return strings.TrimSpace(target)
 	case PlatformCLI:
 		return run.CLICommand
+	case PlatformDesktop:
+		target := run.Desktop.Name
+		if strings.TrimSpace(run.Desktop.BundleID) != "" {
+			target = target + " (" + run.Desktop.BundleID + ")"
+		}
+		return strings.TrimSpace(target)
 	default:
 		return run.BrowserURL
 	}

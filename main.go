@@ -81,6 +81,8 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	fs.StringVar(&opts.IOSScheme, "ios-scheme", "", "")
 	fs.StringVar(&opts.IOSBundleID, "ios-bundle-id", "", "")
 	fs.StringVar(&opts.IOSSimulator, "ios-simulator", "", "")
+	fs.StringVar(&opts.DesktopAppName, "app-name", "", "")
+	fs.StringVar(&opts.DesktopBundleID, "app-bundle-id", "", "")
 	fs.StringVar(&opts.CurlMode, "curl", "", "")
 	fs.Var(&endpoints, "curl-endpoint", "")
 	fs.StringVar(&opts.CurlSkipReason, "curl-skip-reason", "", "")
@@ -149,7 +151,7 @@ func runStatus(store *proctor.Store, cwd string) error {
 
 func runRecord(store *proctor.Store, cwd string, args []string) error {
 	if len(args) == 0 {
-		return errors.New("record requires a surface: browser, ios, curl, or cli")
+		return errors.New("record requires a surface: browser, ios, curl, cli, or desktop")
 	}
 	run, err := store.LoadRun(proctor.RepoRoot(cwd))
 	if err != nil {
@@ -164,6 +166,8 @@ func runRecord(store *proctor.Store, cwd string, args []string) error {
 		return runRecordCurl(store, run, args[1:])
 	case "cli":
 		return runRecordCLI(store, run, args[1:])
+	case "desktop":
+		return runRecordDesktop(store, run, args[1:])
 	default:
 		return fmt.Errorf("unknown record surface: %s", args[0])
 	}
@@ -304,6 +308,40 @@ func runRecordCLI(store *proctor.Store, run proctor.Run, args []string) error {
 	return nil
 }
 
+func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("record desktop", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var screenshots stringList
+	var passAssertions stringList
+	var failAssertions stringList
+	opts := proctor.DesktopRecordOptions{}
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Tool, "tool", "peekaboo", "")
+	fs.StringVar(&opts.ReportPath, "report", "", "")
+	fs.Var(&screenshots, "screenshot", "")
+	fs.Var(&passAssertions, "assert", "")
+	fs.Var(&failAssertions, "fail-assert", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	opts.Screenshots = map[string]string{}
+	for _, item := range screenshots {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			return fmt.Errorf("invalid screenshot format: %s", item)
+		}
+		opts.Screenshots[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	opts.PassAssertions = passAssertions
+	opts.FailAssertions = failAssertions
+	if err := proctor.RecordDesktop(store, run, opts); err != nil {
+		return err
+	}
+	fmt.Printf("Recorded desktop evidence for %s\n", opts.ScenarioID)
+	return nil
+}
+
 func runDone(store *proctor.Store, cwd string) error {
 	run, err := store.LoadRun(proctor.RepoRoot(cwd))
 	if err != nil {
@@ -381,6 +419,12 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 				return err
 			}
 		}
+	case proctor.PlatformDesktop:
+		if strings.TrimSpace(opts.DesktopAppName) == "" {
+			if opts.DesktopAppName, err = prompt(reader, out, "Desktop app name"); err != nil {
+				return err
+			}
+		}
 	default:
 		if strings.TrimSpace(opts.BrowserURL) == "" {
 			if opts.BrowserURL, err = prompt(reader, out, "Browser URL"); err != nil {
@@ -408,7 +452,8 @@ func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) err
 			opts.EdgeCaseInputs = append(opts.EdgeCaseInputs, category+"="+answer)
 		}
 	}
-	if proctor.NormalizePlatform(platform) != proctor.PlatformCLI {
+	normalizedPlatform := proctor.NormalizePlatform(platform)
+	if normalizedPlatform != proctor.PlatformCLI {
 		if strings.TrimSpace(opts.CurlMode) == "" {
 			if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/scenario/skip)"); err != nil {
 				return err

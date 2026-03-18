@@ -14,9 +14,9 @@ import (
 func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 	platform := normalizePlatform(firstNonEmpty(opts.Platform, opts.Surface))
 	switch platform {
-	case PlatformWeb, PlatformIOS, PlatformCLI:
+	case PlatformWeb, PlatformIOS, PlatformCLI, PlatformDesktop:
 	default:
-		return Run{}, fmt.Errorf("--platform must be either web, ios, or cli")
+		return Run{}, fmt.Errorf("--platform must be one of web, ios, cli, or desktop")
 	}
 	curlMode := strings.ToLower(strings.TrimSpace(opts.CurlMode))
 	if strings.TrimSpace(opts.Feature) == "" {
@@ -92,6 +92,33 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		if strings.TrimSpace(opts.CurlMode) != "" || len(curlEndpoints) > 0 || strings.TrimSpace(opts.CurlSkipReason) != "" {
 			return Run{}, fmt.Errorf("--curl, --curl-endpoint, and --curl-skip-reason are only valid when --platform web or --platform ios")
 		}
+	case PlatformDesktop:
+		if strings.TrimSpace(opts.DesktopAppName) == "" {
+			return Run{}, fmt.Errorf("--app-name is required when --platform desktop")
+		}
+		switch curlMode {
+		case CurlModeRequired, CurlModeScenario, CurlModeSkip:
+		default:
+			return Run{}, fmt.Errorf("--curl must be one of required, scenario, or skip")
+		}
+		if strings.TrimSpace(opts.BrowserURL) != "" {
+			return Run{}, fmt.Errorf("--url is only valid when --platform web")
+		}
+		if strings.TrimSpace(opts.CLICommand) != "" {
+			return Run{}, fmt.Errorf("--cli-command is only valid when --platform cli")
+		}
+		if strings.TrimSpace(opts.IOSScheme) != "" || strings.TrimSpace(opts.IOSBundleID) != "" || strings.TrimSpace(opts.IOSSimulator) != "" {
+			return Run{}, fmt.Errorf("--ios-* flags are only valid when --platform ios")
+		}
+		if curlMode == CurlModeRequired && len(curlEndpoints) == 0 {
+			return Run{}, fmt.Errorf("--curl-endpoint is required when --curl required")
+		}
+		if curlMode == CurlModeScenario && len(curlEndpoints) == 0 {
+			return Run{}, fmt.Errorf("--curl-endpoint is required when --curl scenario")
+		}
+		if curlMode == CurlModeSkip && strings.TrimSpace(opts.CurlSkipReason) == "" {
+			return Run{}, fmt.Errorf("--curl-skip-reason is required when --curl skip")
+		}
 	}
 	if err := validateEdgeCaseInputs(platform, opts.EdgeCaseInputs); err != nil {
 		return Run{}, err
@@ -103,7 +130,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		return Run{}, err
 	}
 	now := time.Now().UTC()
-	browserRequired, iosRequired, cliRequired := uiRequirementsForPlatform(platform)
+	browserRequired, iosRequired, cliRequired, desktopRequired := uiRequirementsForPlatform(platform)
 	run := Run{
 		ID:             newID("run"),
 		RepoRoot:       repoRoot,
@@ -113,6 +140,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		Feature:        strings.TrimSpace(opts.Feature),
 		BrowserURL:     strings.TrimSpace(opts.BrowserURL),
 		CLICommand:     strings.TrimSpace(opts.CLICommand),
+		Desktop:        DesktopApp{Name: strings.TrimSpace(opts.DesktopAppName), BundleID: strings.TrimSpace(opts.DesktopBundleID)},
 		CurlMode:       curlMode,
 		IOS:            IOSTarget{Scheme: strings.TrimSpace(opts.IOSScheme), BundleID: strings.TrimSpace(opts.IOSBundleID), Simulator: strings.TrimSpace(opts.IOSSimulator)},
 		CurlRequired:   curlMode == CurlModeRequired,
@@ -130,6 +158,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		BrowserRequired: browserRequired,
 		IOSRequired:     iosRequired,
 		CLIRequired:     cliRequired,
+		DesktopRequired: desktopRequired,
 		CurlRequired:    run.CurlRequired,
 	}
 	run.FailurePath = Scenario{
@@ -139,6 +168,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		BrowserRequired: browserRequired,
 		IOSRequired:     iosRequired,
 		CLIRequired:     cliRequired,
+		DesktopRequired: desktopRequired,
 		CurlRequired:    run.CurlRequired,
 	}
 	run.Scenarios = append(run.Scenarios, run.HappyPath, run.FailurePath)
@@ -481,6 +511,80 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	return nil
 }
 
+func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
+	scenario, ok := findScenario(run, opts.ScenarioID)
+	if !ok {
+		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
+	}
+	if opts.SessionID == "" {
+		return fmt.Errorf("desktop evidence requires --session")
+	}
+	if opts.ReportPath == "" {
+		return fmt.Errorf("desktop evidence requires --report")
+	}
+	if len(opts.Screenshots) == 0 {
+		return fmt.Errorf("desktop evidence requires at least one --screenshot")
+	}
+
+	var artifacts []Artifact
+	for label, source := range opts.Screenshots {
+		artifact, err := store.CopyArtifact(run, SurfaceDesktop, scenario.ID, label, source)
+		if err != nil {
+			return err
+		}
+		artifact.Kind = ArtifactImage
+		artifacts = append(artifacts, artifact)
+	}
+	reportArtifact, err := store.CopyArtifact(run, SurfaceDesktop, scenario.ID, "desktop-report", opts.ReportPath)
+	if err != nil {
+		return err
+	}
+	reportArtifact.Kind = ArtifactJSONReport
+	reportArtifact.MediaType = "application/json"
+	artifacts = append(artifacts, reportArtifact)
+
+	reportData, err := ParseDesktopReport(opts.ReportPath)
+	if err != nil {
+		return err
+	}
+	reportData.SessionID = opts.SessionID
+	reportData.Tool = firstNonEmpty(opts.Tool, "peekaboo")
+	assertions, err := EvaluateDesktopAssertions(opts.PassAssertions, opts.FailAssertions, reportData, artifacts)
+	if err != nil {
+		return err
+	}
+	if len(assertions) == 0 {
+		return fmt.Errorf("desktop evidence requires at least one assertion")
+	}
+
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: scenario.ID,
+		Surface:    SurfaceDesktop,
+		Tier:       TierRegisteredRun,
+		CreatedAt:  time.Now().UTC(),
+		Title:      fmt.Sprintf("Desktop verification for %s", scenario.Label),
+		Provenance: Provenance{
+			Mode:       "registered-session",
+			Tool:       firstNonEmpty(opts.Tool, "peekaboo"),
+			SessionID:  opts.SessionID,
+			CWD:        run.RepoRoot,
+			RecordedBy: "proctor",
+		},
+		Assertions: assertions,
+		Artifacts:  artifacts,
+		Desktop:    &reportData,
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		return err
+	}
+	if err := writeReports(store, run); err != nil {
+		return err
+	}
+	return nil
+}
+
 func Evaluate(store *Store, run Run) (Evaluation, error) {
 	evidence, err := store.LoadEvidence(run)
 	if err != nil {
@@ -492,11 +596,14 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	hasDesktop := true
 	hasMobile := true
 	hasIOSScreenshot := true
+	hasDesktopScreenshot := true
 	switch platform {
 	case PlatformIOS:
 		hasIOSScreenshot = iosVisualCoverage(store, run, evidence)
 	case PlatformWeb:
 		hasDesktop, hasMobile = browserVisualCoverage(store, run, evidence)
+	case PlatformDesktop:
+		hasDesktopScreenshot = desktopVisualCoverage(store, run, evidence)
 	}
 
 	for _, scenario := range run.Scenarios {
@@ -531,6 +638,13 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 				eval.Complete = false
 			}
 		}
+		if scenario.DesktopRequired {
+			desktopEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceDesktop)
+			scenarioEval.DesktopOK, scenarioEval.DesktopIssues = validateDesktopEvidence(store, run, desktopEvidence)
+			if !scenarioEval.DesktopOK {
+				eval.Complete = false
+			}
+		}
 
 		eval.ScenarioEvaluations = append(eval.ScenarioEvaluations, scenarioEval)
 	}
@@ -549,6 +663,11 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 		if !hasMobile {
 			eval.Complete = false
 			eval.GlobalMissing = append(eval.GlobalMissing, "at least one mobile screenshot")
+		}
+	case PlatformDesktop:
+		if !hasDesktopScreenshot {
+			eval.Complete = false
+			eval.GlobalMissing = append(eval.GlobalMissing, "at least one desktop app screenshot")
 		}
 	}
 
@@ -596,6 +715,86 @@ func iosVisualCoverage(store *Store, run Run, evidence []Evidence) bool {
 		}
 	}
 	return false
+}
+
+func desktopVisualCoverage(store *Store, run Run, evidence []Evidence) bool {
+	for _, item := range evidence {
+		if item.Surface != SurfaceDesktop || item.Tier < TierRegisteredRun {
+			continue
+		}
+		for _, artifact := range item.Artifacts {
+			if artifact.Kind != ArtifactImage {
+				continue
+			}
+			if err := store.VerifyArtifactHash(run, artifact); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validateDesktopEvidence(store *Store, run Run, items []Evidence) (bool, []string) {
+	if len(items) == 0 {
+		return false, []string{"missing desktop evidence"}
+	}
+	for _, item := range items {
+		issues := desktopEvidenceIssues(store, run, item)
+		if len(issues) == 0 {
+			return true, nil
+		}
+	}
+	var issues []string
+	for _, item := range items {
+		issues = append(issues, desktopEvidenceIssues(store, run, item)...)
+	}
+	return false, dedupeStrings(issues)
+}
+
+func desktopEvidenceIssues(store *Store, run Run, item Evidence) []string {
+	var issues []string
+	if item.Tier < TierRegisteredRun {
+		issues = append(issues, fmt.Sprintf("desktop evidence tier %d is below required tier %d", item.Tier, TierRegisteredRun))
+	}
+	if item.Provenance.SessionID == "" {
+		issues = append(issues, "desktop evidence is missing a registered session id")
+	}
+	issues = append(issues, desktopReportStructureIssues(item)...)
+	issues = append(issues, assertionIssues(item.Assertions, "desktop")...)
+
+	hasImage := false
+	hasReport := false
+	for _, artifact := range item.Artifacts {
+		if err := store.VerifyArtifactHash(run, artifact); err != nil {
+			issues = append(issues, fmt.Sprintf("artifact hash mismatch for %s", artifact.Label))
+			continue
+		}
+		switch artifact.Kind {
+		case ArtifactImage:
+			hasImage = true
+		case ArtifactJSONReport:
+			hasReport = true
+		}
+	}
+	if !hasImage {
+		issues = append(issues, "desktop evidence is missing a screenshot")
+	}
+	if !hasReport {
+		issues = append(issues, "desktop evidence is missing a desktop report")
+	}
+	return dedupeStrings(issues)
+}
+
+func desktopReportStructureIssues(item Evidence) []string {
+	if item.Desktop == nil {
+		return []string{"desktop evidence is missing parsed desktop report data"}
+	}
+
+	var issues []string
+	if strings.TrimSpace(item.Desktop.AppName) == "" {
+		issues = append(issues, "desktop report is missing an app name")
+	}
+	return issues
 }
 
 func CompleteRun(store *Store, run Run) (Evaluation, error) {
@@ -901,7 +1100,7 @@ func edgeCaseNAReason(response string) (string, bool) {
 func parseEdgeCaseInputs(platform string, inputs []string) ([]EdgeCaseCategory, []Scenario) {
 	var categories []EdgeCaseCategory
 	var scenarios []Scenario
-	browserRequired, iosRequired, cliRequired := uiRequirementsForPlatform(platform)
+	browserRequired, iosRequired, cliRequired, desktopRequired := uiRequirementsForPlatform(platform)
 	responses := edgeCaseResponseMap(inputs)
 	for _, category := range EdgeCaseCategoriesForPlatform(platform) {
 		entry := EdgeCaseCategory{Category: category}
@@ -936,6 +1135,7 @@ func parseEdgeCaseInputs(platform string, inputs []string) ([]EdgeCaseCategory, 
 				BrowserRequired: browserRequired,
 				IOSRequired:     iosRequired,
 				CLIRequired:     cliRequired,
+				DesktopRequired: desktopRequired,
 				CurlRequired:    false,
 			}
 			entry.ScenarioIDs = append(entry.ScenarioIDs, scenario.ID)
@@ -1482,13 +1682,15 @@ func newID(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
 }
 
-func uiRequirementsForPlatform(platform string) (bool, bool, bool) {
+func uiRequirementsForPlatform(platform string) (bool, bool, bool, bool) {
 	switch normalizePlatform(platform) {
 	case PlatformIOS:
-		return false, true, false
+		return false, true, false, false
 	case PlatformCLI:
-		return false, false, true
+		return false, false, true, false
+	case PlatformDesktop:
+		return false, false, false, true
 	default:
-		return true, false, false
+		return true, false, false, false
 	}
 }

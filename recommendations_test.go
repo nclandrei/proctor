@@ -25,6 +25,70 @@ func TestDetectCaptureToolsWithLookPath(t *testing.T) {
 	}
 }
 
+func TestDetectPeekabooCaptureTool(t *testing.T) {
+	tools := detectCaptureToolsWithLookPath(func(name string) (string, error) {
+		switch name {
+		case "peekaboo":
+			return "/usr/local/bin/peekaboo", nil
+		default:
+			return "", fmt.Errorf("missing %s", name)
+		}
+	})
+
+	if !tools.Peekaboo {
+		t.Fatalf("expected peekaboo to be detected, got %#v", tools)
+	}
+	if tools.Screencapture || tools.AgentBrowser {
+		t.Fatalf("expected absent tools to be false, got %#v", tools)
+	}
+}
+
+func TestRunStartPrintsRecommendedWorkflowForDesktopRun(t *testing.T) {
+	withStubbedLookPath(t, "peekaboo", "curl")
+
+	proctorHome := t.TempDir()
+	t.Setenv("PROCTOR_HOME", proctorHome)
+
+	repoRoot := t.TempDir()
+	initGitRepoForCLI(t, repoRoot, "https://github.com/nclandrei/proctor-desktop-rec-test")
+
+	withWorkingDirectory(t, repoRoot, func() {
+		output := captureStdout(t, func() {
+			if err := run([]string{
+				"start",
+				"--platform", "desktop",
+				"--feature", "bookmark manager",
+				"--app-name", "Firefox",
+				"--curl", "skip",
+				"--curl-skip-reason", "UI-only desktop verification",
+				"--happy-path", "bookmark manager opens",
+				"--failure-path", "empty list shows prompt",
+				"--edge-case", "validation and malformed input=N/A: no input",
+				"--edge-case", "empty or missing input=N/A: no input",
+				"--edge-case", "retry or double-submit=N/A: no mutation",
+				"--edge-case", "loading, latency, and race conditions=N/A: instant",
+				"--edge-case", "network or server failure=N/A: no backend",
+				"--edge-case", "auth and session state=N/A: no auth",
+				"--edge-case", "window management, resize, and multi-monitor=N/A: covered",
+				"--edge-case", "drag-drop, clipboard, and system integration=N/A: no drag-drop",
+				"--edge-case", "keyboard shortcuts and accessibility=N/A: visual only",
+				"--edge-case", "any feature-specific risks=N/A: no risks",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		for _, needle := range []string{
+			"Recommended next step:",
+			"`peekaboo` detected on PATH",
+		} {
+			if !strings.Contains(output, needle) {
+				t.Fatalf("expected start output to include %q, got:\n%s", needle, output)
+			}
+		}
+	})
+}
+
 func TestRunStartPrintsRecommendedWorkflowForWebRun(t *testing.T) {
 	withStubbedLookPath(t, "agent-browser", "curl")
 

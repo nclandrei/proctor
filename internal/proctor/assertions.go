@@ -24,6 +24,11 @@ var defaultBlockingIOSHealthChecks = []string{
 	"fatal_logs",
 }
 
+var defaultBlockingDesktopHealthChecks = []string{
+	"crashes",
+	"fatal_logs",
+}
+
 type agentBrowserAuditReport struct {
 	Desktop *agentBrowserDevice `json:"desktop"`
 	Mobile  *agentBrowserDevice `json:"mobile"`
@@ -561,6 +566,140 @@ func implicitIOSAssertions(covered map[string]bool, data IOSData) []Assertion {
 			continue
 		}
 		value, ok := lookupIOSValue(metric, data, nil)
+		if !ok {
+			continue
+		}
+		actualValue, _ := value.(int)
+		result := AssertionPass
+		message := ""
+		if actualValue != 0 {
+			result = AssertionFail
+			message = "implicit zero-issues policy failed"
+		}
+		assertions = append(assertions, Assertion{
+			Description: metric + " = 0",
+			Expected:    "0",
+			Actual:      strconv.Itoa(actualValue),
+			Result:      result,
+			Message:     message,
+		})
+	}
+	return assertions
+}
+
+type desktopAuditReport struct {
+	App    *desktopAuditApp    `json:"app"`
+	Issues *desktopAuditIssues `json:"issues"`
+}
+
+type desktopAuditApp struct {
+	Name        string `json:"name"`
+	BundleID    string `json:"bundleId"`
+	PID         int    `json:"pid"`
+	State       string `json:"state"`
+	WindowTitle string `json:"windowTitle"`
+}
+
+type desktopAuditIssues struct {
+	Crashes   int `json:"crashes"`
+	FatalLogs int `json:"fatalLogs"`
+}
+
+func ParseDesktopReport(path string) (DesktopData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return DesktopData{}, err
+	}
+	var report desktopAuditReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return DesktopData{}, fmt.Errorf("parse desktop report: %w", err)
+	}
+
+	result := DesktopData{}
+	if report.App != nil {
+		result.AppName = report.App.Name
+		result.BundleID = report.App.BundleID
+		result.PID = report.App.PID
+		result.State = report.App.State
+		result.WindowTitle = report.App.WindowTitle
+	}
+	if report.Issues != nil {
+		result.Issues = DesktopIssueSummary{
+			Crashes:   report.Issues.Crashes,
+			FatalLogs: report.Issues.FatalLogs,
+		}
+	}
+	return result, nil
+}
+
+func EvaluateDesktopAssertions(expressions, failingExpressions []string, data DesktopData, artifacts []Artifact) ([]Assertion, error) {
+	var assertions []Assertion
+	covered := coveredAssertionKeys(expressions, failingExpressions)
+	for _, expression := range normalizedLines(expressions) {
+		assertion, err := evaluateDesktopAssertion(expression, data, artifacts, true)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, assertion)
+	}
+	for _, expression := range normalizedLines(failingExpressions) {
+		assertion, err := evaluateDesktopAssertion(expression, data, artifacts, false)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, assertion)
+	}
+	for _, assertion := range implicitDesktopAssertions(covered, data) {
+		assertions = append(assertions, assertion)
+	}
+	return assertions, nil
+}
+
+func evaluateDesktopAssertion(expression string, data DesktopData, artifacts []Artifact, expectPass bool) (Assertion, error) {
+	left, operator, right, err := splitAssertion(expression)
+	if err != nil {
+		return Assertion{}, err
+	}
+	actual, ok := lookupDesktopValue(left, data, artifacts)
+	if !ok {
+		return Assertion{}, fmt.Errorf("unsupported desktop assertion: %s", expression)
+	}
+	passed, actualText, expectedText, err := compareAssertion(actual, operator, right)
+	if err != nil {
+		return Assertion{}, err
+	}
+	return finalizeAssertion(expression, expectedText, actualText, passed, expectPass), nil
+}
+
+func lookupDesktopValue(key string, data DesktopData, artifacts []Artifact) (interface{}, bool) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	switch key {
+	case "app_name":
+		return data.AppName, true
+	case "bundle_id":
+		return data.BundleID, true
+	case "state":
+		return data.State, true
+	case "window_title":
+		return data.WindowTitle, true
+	case "crashes":
+		return data.Issues.Crashes, true
+	case "fatal_logs":
+		return data.Issues.FatalLogs, true
+	case "screenshot":
+		return hasAnyScreenshot(artifacts), true
+	default:
+		return nil, false
+	}
+}
+
+func implicitDesktopAssertions(covered map[string]bool, data DesktopData) []Assertion {
+	var assertions []Assertion
+	for _, metric := range defaultBlockingDesktopHealthChecks {
+		if covered[metric] {
+			continue
+		}
+		value, ok := lookupDesktopValue(metric, data, nil)
 		if !ok {
 			continue
 		}
