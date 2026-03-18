@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -73,6 +72,7 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	fs.SetOutput(ioDiscard{})
 	var endpoints stringList
 	var edgeCases stringList
+	var force bool
 	opts := proctor.StartOptions{}
 	fs.StringVar(&opts.Platform, "platform", proctor.PlatformWeb, "")
 	fs.StringVar(&opts.Feature, "feature", "", "")
@@ -89,13 +89,19 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	fs.StringVar(&opts.HappyPath, "happy-path", "", "")
 	fs.StringVar(&opts.FailurePath, "failure-path", "", "")
 	fs.Var(&edgeCases, "edge-case", "")
+	fs.BoolVar(&force, "force", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	opts.CurlEndpoints = endpoints
 	opts.EdgeCaseInputs = edgeCases
-	if err := fillStartPrompts(os.Stdin, os.Stdout, &opts); err != nil {
+	if err := validateStartFlags(&opts); err != nil {
 		return err
+	}
+	if !force {
+		if _, err := store.LoadRun(proctor.RepoRoot(cwd)); err == nil {
+			return errors.New("active run already exists for this repo; use --force to replace it")
+		}
 	}
 	run, err := proctor.CreateRun(store, cwd, opts)
 	if err != nil {
@@ -385,114 +391,57 @@ func runReport(store *proctor.Store, cwd string) error {
 	return nil
 }
 
-func fillStartPrompts(in *os.File, out *os.File, opts *proctor.StartOptions) error {
-	reader := bufio.NewReader(in)
-	var err error
-
+func validateStartFlags(opts *proctor.StartOptions) error {
 	platform := strings.TrimSpace(opts.Platform)
 	if platform == "" {
 		platform = proctor.PlatformWeb
 	}
 	opts.Platform = platform
 
+	var missing []string
 	if strings.TrimSpace(opts.Feature) == "" {
-		if opts.Feature, err = prompt(reader, out, "Feature / flow name"); err != nil {
-			return err
-		}
+		missing = append(missing, "--feature")
 	}
-
 	switch proctor.NormalizePlatform(platform) {
 	case proctor.PlatformIOS:
 		if strings.TrimSpace(opts.IOSScheme) == "" {
-			if opts.IOSScheme, err = prompt(reader, out, "iOS scheme"); err != nil {
-				return err
-			}
+			missing = append(missing, "--ios-scheme")
 		}
 		if strings.TrimSpace(opts.IOSBundleID) == "" {
-			if opts.IOSBundleID, err = prompt(reader, out, "iOS bundle id"); err != nil {
-				return err
-			}
+			missing = append(missing, "--ios-bundle-id")
 		}
 	case proctor.PlatformCLI:
 		if strings.TrimSpace(opts.CLICommand) == "" {
-			if opts.CLICommand, err = prompt(reader, out, "CLI command"); err != nil {
-				return err
-			}
+			missing = append(missing, "--cli-command")
 		}
 	case proctor.PlatformDesktop:
 		if strings.TrimSpace(opts.DesktopAppName) == "" {
-			if opts.DesktopAppName, err = prompt(reader, out, "Desktop app name"); err != nil {
-				return err
-			}
+			missing = append(missing, "--app-name")
 		}
 	default:
 		if strings.TrimSpace(opts.BrowserURL) == "" {
-			if opts.BrowserURL, err = prompt(reader, out, "Browser URL"); err != nil {
-				return err
-			}
+			missing = append(missing, "--url")
 		}
 	}
-
 	if strings.TrimSpace(opts.HappyPath) == "" {
-		if opts.HappyPath, err = prompt(reader, out, "Happy path"); err != nil {
-			return err
-		}
+		missing = append(missing, "--happy-path")
 	}
 	if strings.TrimSpace(opts.FailurePath) == "" {
-		if opts.FailurePath, err = prompt(reader, out, "Main failure path"); err != nil {
-			return err
-		}
+		missing = append(missing, "--failure-path")
 	}
 	if len(opts.EdgeCaseInputs) == 0 {
-		for _, category := range proctor.EdgeCaseCategoriesForPlatform(platform) {
-			answer, err := prompt(reader, out, fmt.Sprintf("%s (scenario(s) separated by ';' or N/A: reason)", category))
-			if err != nil {
-				return err
-			}
-			opts.EdgeCaseInputs = append(opts.EdgeCaseInputs, category+"="+answer)
-		}
+		missing = append(missing, "--edge-case")
 	}
 	normalizedPlatform := proctor.NormalizePlatform(platform)
 	if normalizedPlatform != proctor.PlatformCLI {
 		if strings.TrimSpace(opts.CurlMode) == "" {
-			if opts.CurlMode, err = prompt(reader, out, "Direct HTTP verification? (required/scenario/skip)"); err != nil {
-				return err
-			}
+			missing = append(missing, "--curl")
 		}
-		if strings.EqualFold(opts.CurlMode, proctor.CurlModeRequired) && len(opts.CurlEndpoints) == 0 {
-			value, err := prompt(reader, out, "curl endpoint(s), separated by ';'")
-			if err != nil {
-				return err
-			}
-			opts.CurlEndpoints = splitSemicolonList(value)
-		}
-		if strings.EqualFold(opts.CurlMode, proctor.CurlModeScenario) && len(opts.CurlEndpoints) == 0 {
-			value, err := prompt(reader, out, "curl scenario plan(s), separated by '|' (SCENARIO=METHOD /path[; METHOD /path])")
-			if err != nil {
-				return err
-			}
-			opts.CurlEndpoints = splitPipeList(value)
-		}
-		if strings.EqualFold(opts.CurlMode, proctor.CurlModeSkip) && strings.TrimSpace(opts.CurlSkipReason) == "" {
-			if opts.CurlSkipReason, err = prompt(reader, out, "Reason for skipping direct HTTP verification"); err != nil {
-				return err
-			}
-		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required flags: %s", strings.Join(missing, ", "))
 	}
 	return nil
-}
-
-func prompt(reader *bufio.Reader, out *os.File, label string) (string, error) {
-	fmt.Fprintf(out, "%s: ", label)
-	value, err := reader.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("%s is required", label)
-	}
-	return value, nil
 }
 
 func splitSemicolonList(value string) []string {
