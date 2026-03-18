@@ -147,7 +147,8 @@ func TestDesktopImplicitHealthChecksFailWhenUnaccounted(t *testing.T) {
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 1, 0))
 	screenshot := writeFixture(t, repo, "window.png", "window-image")
 
-	if err := RecordDesktop(store, run, DesktopRecordOptions{
+	// Record with implicit health checks that will fail; error expected.
+	_ = RecordDesktop(store, run, DesktopRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "firefox-desktop-1",
 		ReportPath: report,
@@ -157,9 +158,7 @@ func TestDesktopImplicitHealthChecksFailWhenUnaccounted(t *testing.T) {
 		PassAssertions: []string{
 			"app_name contains Firefox",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	evidence, err := store.LoadEvidence(run)
 	if err != nil {
@@ -205,7 +204,8 @@ func TestDesktopFailAssertionReportsUnexpectedPassClearly(t *testing.T) {
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
 	screenshot := writeFixture(t, repo, "window.png", "window-image")
 
-	if err := RecordDesktop(store, run, DesktopRecordOptions{
+	// Record with a fail-assert that unexpectedly passes; error expected.
+	_ = RecordDesktop(store, run, DesktopRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "firefox-desktop-1",
 		ReportPath: report,
@@ -218,9 +218,7 @@ func TestDesktopFailAssertionReportsUnexpectedPassClearly(t *testing.T) {
 		FailAssertions: []string{
 			"app_name contains Firefox",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	eval, err := Evaluate(store, run)
 	if err != nil {

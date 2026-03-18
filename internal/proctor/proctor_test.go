@@ -640,7 +640,8 @@ func TestBrowserWarningsCanBeMadeBlockingWithExplicitAssertion(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
 	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
 
-	if err := RecordBrowser(store, run, BrowserRecordOptions{
+	// Record with an intentionally failing assertion; error expected.
+	_ = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
 		ReportPath: report,
@@ -651,9 +652,7 @@ func TestBrowserWarningsCanBeMadeBlockingWithExplicitAssertion(t *testing.T) {
 			"final_url contains /dashboard",
 			"console_warnings = 0",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	eval, err := Evaluate(store, run)
 	if err != nil {
@@ -827,7 +826,8 @@ func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
 	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
 
-	if err := RecordBrowser(store, run, BrowserRecordOptions{
+	// Record with an intentionally failing assertion; error expected.
+	_ = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
 		ReportPath: report,
@@ -838,9 +838,7 @@ func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
 		PassAssertions: []string{
 			"console_errors = 0",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	eval, err := Evaluate(store, run)
 	if err != nil {
@@ -921,7 +919,8 @@ func TestBrowserImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T
 	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
 
-	if err := RecordBrowser(store, run, BrowserRecordOptions{
+	// Record with implicit health checks that will fail; error expected.
+	_ = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
 		ReportPath: report,
@@ -932,9 +931,7 @@ func TestBrowserImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T
 		PassAssertions: []string{
 			"final_url contains /dashboard",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	evidence, err := store.LoadEvidence(run)
 	if err != nil {
@@ -1023,15 +1020,14 @@ func TestCurlEvaluationIncludesFailedAssertionDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RecordCurl(store, run, CurlRecordOptions{
+	// Record with an intentionally failing assertion; error expected.
+	_ = RecordCurl(store, run, CurlRecordOptions{
 		ScenarioID: "happy-path",
 		Command:    []string{"/bin/sh", "-lc", "printf 'HTTP/1.1 500 Internal Server Error\\nContent-Type: application/json\\n\\n{\"error\":\"boom\"}'"},
 		PassAssertions: []string{
 			"status = 200",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	eval, err := Evaluate(store, run)
 	if err != nil {

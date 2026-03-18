@@ -187,7 +187,8 @@ func TestCLIAssertionFailureBlocksScenario(t *testing.T) {
 	}
 
 	exitCode := 0
-	if err := RecordCLI(store, run, CLIRecordOptions{
+	// Record with an intentionally failing assertion; error expected.
+	_ = RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "cli-session-1",
 		Command:        "demo help",
@@ -199,9 +200,7 @@ func TestCLIAssertionFailureBlocksScenario(t *testing.T) {
 		PassAssertions: []string{
 			"output contains definitely-missing-text",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	eval, err := Evaluate(store, run)
 	if err != nil {

@@ -166,7 +166,8 @@ func TestIOSImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T) {
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 1, 0))
 	screenshot := writeFixture(t, repo, "library.png", "library-screen")
 
-	if err := RecordIOS(store, run, IOSRecordOptions{
+	// Record with implicit health checks that will fail; error expected.
+	_ = RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "pagena-library-1",
 		ReportPath: report,
@@ -176,9 +177,7 @@ func TestIOSImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T) {
 		PassAssertions: []string{
 			"screen contains Library",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	evidence, err := store.LoadEvidence(run)
 	if err != nil {
@@ -224,7 +223,8 @@ func TestIOSFailAssertionReportsUnexpectedPassClearly(t *testing.T) {
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
 	screenshot := writeFixture(t, repo, "library.png", "library-screen")
 
-	if err := RecordIOS(store, run, IOSRecordOptions{
+	// Record with a fail-assert that unexpectedly passes; error expected.
+	_ = RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "pagena-library-1",
 		ReportPath: report,
@@ -237,9 +237,7 @@ func TestIOSFailAssertionReportsUnexpectedPassClearly(t *testing.T) {
 		FailAssertions: []string{
 			"screen contains Library",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	eval, err := Evaluate(store, run)
 	if err != nil {

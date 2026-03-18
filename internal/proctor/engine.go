@@ -198,6 +198,9 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 }
 
 func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
+	if err := validateSurfaceForPlatform(SurfaceBrowser, run.Platform); err != nil {
+		return err
+	}
 	scenario, ok := findScenario(run, opts.ScenarioID)
 	if !ok {
 		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
@@ -240,7 +243,6 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if len(assertions) == 0 {
 		return fmt.Errorf("browser evidence requires at least one assertion")
 	}
-
 	evidence := Evidence{
 		ID:         newID("ev"),
 		RunID:      run.ID,
@@ -272,10 +274,13 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
-	return nil
+	return checkAssertionFailures(assertions)
 }
 
 func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
+	if err := validateSurfaceForPlatform(SurfaceIOS, run.Platform); err != nil {
+		return err
+	}
 	scenario, ok := findScenario(run, opts.ScenarioID)
 	if !ok {
 		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
@@ -318,7 +323,6 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	if len(assertions) == 0 {
 		return fmt.Errorf("ios evidence requires at least one assertion")
 	}
-
 	evidence := Evidence{
 		ID:         newID("ev"),
 		RunID:      run.ID,
@@ -344,10 +348,13 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
-	return nil
+	return checkAssertionFailures(assertions)
 }
 
 func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
+	if err := validateSurfaceForPlatform(SurfaceCurl, run.Platform); err != nil {
+		return err
+	}
 	scenario, ok := findScenario(run, opts.ScenarioID)
 	if !ok {
 		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
@@ -419,10 +426,13 @@ func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
-	return nil
+	return checkAssertionFailures(assertions)
 }
 
 func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
+	if err := validateSurfaceForPlatform(SurfaceCLI, run.Platform); err != nil {
+		return err
+	}
 	scenario, ok := findScenario(run, opts.ScenarioID)
 	if !ok {
 		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
@@ -508,10 +518,13 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
-	return nil
+	return checkAssertionFailures(assertions)
 }
 
 func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
+	if err := validateSurfaceForPlatform(SurfaceDesktop, run.Platform); err != nil {
+		return err
+	}
 	scenario, ok := findScenario(run, opts.ScenarioID)
 	if !ok {
 		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
@@ -556,7 +569,6 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	if len(assertions) == 0 {
 		return fmt.Errorf("desktop evidence requires at least one assertion")
 	}
-
 	evidence := Evidence{
 		ID:         newID("ev"),
 		RunID:      run.ID,
@@ -582,7 +594,7 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
-	return nil
+	return checkAssertionFailures(assertions)
 }
 
 func Evaluate(store *Store, run Run) (Evaluation, error) {
@@ -1693,4 +1705,32 @@ func uiRequirementsForPlatform(platform string) (bool, bool, bool, bool) {
 	default:
 		return true, false, false, false
 	}
+}
+
+func validateSurfaceForPlatform(surface, platform string) error {
+	allowed := map[string][]string{
+		PlatformWeb:     {SurfaceBrowser, SurfaceCurl},
+		PlatformIOS:     {SurfaceIOS, SurfaceCurl},
+		PlatformCLI:     {SurfaceCLI},
+		PlatformDesktop: {SurfaceDesktop, SurfaceCurl},
+	}
+	for _, s := range allowed[normalizePlatform(platform)] {
+		if s == surface {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s evidence is not valid for a %s platform run", surface, platform)
+}
+
+func checkAssertionFailures(assertions []Assertion) error {
+	var failures []string
+	for _, a := range assertions {
+		if a.Result == AssertionFail {
+			failures = append(failures, fmt.Sprintf("assertion failed: %s (expected %s, actual %s)", a.Description, a.Expected, a.Actual))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%s", strings.Join(failures, "; "))
+	}
+	return nil
 }
