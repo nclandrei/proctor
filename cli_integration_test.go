@@ -22,7 +22,8 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 	repoRoot := t.TempDir()
 	initIntegrationGitRepo(t, repoRoot, "https://github.com/nclandrei/proctor-integration-test")
 
-	terminalShot := writeIntegrationFixture(t, repoRoot, "terminal.png", "terminal-image")
+	terminalShotHappy := writeIntegrationFixture(t, repoRoot, "terminal-happy.png", "terminal-image-happy")
+	terminalShotFailure := writeIntegrationFixture(t, repoRoot, "terminal-failure.png", "terminal-image-failure")
 	happyTranscript := writeIntegrationFixture(t, repoRoot, "happy-pane.txt", "Usage:\n  demo help\nonboarding prompt")
 	failureTranscript := writeIntegrationFixture(t, repoRoot, "failure-pane.txt", "error: prompt not found")
 
@@ -45,7 +46,7 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 		"--session", "integration-cli-1",
 		"--command", "demo help",
 		"--transcript", happyTranscript,
-		"--screenshot", "terminal="+terminalShot,
+		"--screenshot", "terminal="+terminalShotHappy,
 		"--exit-code", "0",
 		"--assert", "output contains onboarding",
 		"--assert", "exit_code = 0",
@@ -58,7 +59,7 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 		"--session", "integration-cli-1",
 		"--command", "demo help missing",
 		"--transcript", failureTranscript,
-		"--screenshot", "terminal="+terminalShot,
+		"--screenshot", "terminal="+terminalShotFailure,
 		"--exit-code", "2",
 		"--assert", "output contains prompt not found",
 		"--assert", "exit_code = 2",

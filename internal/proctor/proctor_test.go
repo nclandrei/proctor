@@ -60,14 +60,182 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	reportText := string(report)
-	if !strings.Contains(reportText, "Proctor Report") || !strings.Contains(reportText, "summary-grid") {
-		t.Fatalf("expected report html to include the new summary layout, got:\n%s", reportText)
+	if !strings.Contains(reportText, "Verification Report") || !strings.Contains(reportText, "class=\"meta\"") {
+		t.Fatalf("expected report html to include the summary layout, got:\n%s", reportText)
 	}
-	if !strings.Contains(reportText, "Scenario Rollup") || !strings.Contains(reportText, "--bg: #081017") {
-		t.Fatalf("expected report html to include the dark rollup layout, got:\n%s", reportText)
+	if !strings.Contains(reportText, "rollup-strip") || !strings.Contains(reportText, "--bg: #faf9f6") {
+		t.Fatalf("expected report html to include the rollup layout, got:\n%s", reportText)
 	}
-	if !strings.Contains(reportText, `<meta name="color-scheme" content="dark">`) || !strings.Contains(reportText, "color-scheme: dark;") {
-		t.Fatalf("expected report html to force dark mode, got:\n%s", reportText)
+	if !strings.Contains(reportText, `class="summary-grid"`) {
+		t.Fatalf("expected report html to include summary grid, got:\n%s", reportText)
+	}
+	if !strings.Contains(reportText, "pass-card") || !strings.Contains(reportText, "fail-card") || !strings.Contains(reportText, "total-card") {
+		t.Fatalf("expected report html to include all three summary cards, got:\n%s", reportText)
+	}
+	if !strings.Contains(reportText, `<meta name="color-scheme" content="light dark">`) {
+		t.Fatalf("expected report html to set color-scheme, got:\n%s", reportText)
+	}
+}
+
+func TestStaleScreenshotIsRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	// Create a screenshot and set its mtime to 2 hours ago.
+	staleShot := writeFixture(t, repo, "stale.png", "stale-image")
+	staleTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(staleShot, staleTime, staleTime); err != nil {
+		t.Fatal(err)
+	}
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-stale": staleShot,
+		},
+		PassAssertions:   []string{"console_errors = 0"},
+		MaxScreenshotAge: 30 * time.Minute,
+	})
+	if err == nil || !strings.Contains(err.Error(), "too old") {
+		t.Fatalf("expected stale screenshot rejection, got %v", err)
+	}
+}
+
+func TestCrossScenarioDuplicateScreenshotIsRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	sharedShot := writeFixture(t, repo, "shared.png", "identical-screenshot-content")
+
+	// First recording succeeds.
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": sharedShot,
+		},
+		PassAssertions: []string{"console_errors = 0"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second recording with the same screenshot content for a different scenario is rejected.
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "failure-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-failure": sharedShot,
+		},
+		PassAssertions: []string{"console_errors = 0"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "identical content") {
+		t.Fatalf("expected duplicate screenshot rejection, got %v", err)
+	}
+}
+
+func TestSameScenarioReRecordingAllowed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	shot := writeFixture(t, repo, "desktop.png", "desktop-image-content")
+
+	// First recording.
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-first": shot,
+		},
+		PassAssertions: []string{"console_errors = 0"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second recording for the same scenario should be allowed (append-only).
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-second": shot,
+		},
+		PassAssertions: []string{"console_errors = 0"},
+	}); err != nil {
+		t.Fatalf("expected same-scenario re-recording to be allowed, got %v", err)
+	}
+}
+
+func TestFreshScreenshotIsAccepted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	freshShot := writeFixture(t, repo, "fresh.png", "fresh-image")
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-fresh": freshShot,
+		},
+		PassAssertions:   []string{"console_errors = 0"},
+		MaxScreenshotAge: 30 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("expected fresh screenshot to be accepted, got %v", err)
 	}
 }
 
@@ -113,7 +281,7 @@ func TestReportEmbedsScreenshotPreviews(t *testing.T) {
 	if !strings.Contains(text, "data:image/png;base64,") {
 		t.Fatalf("expected report html to embed screenshot previews, got:\n%s", text)
 	}
-	if !strings.Contains(text, "Embedded preview. Click to enlarge.") {
+	if !strings.Contains(text, "Click to enlarge") {
 		t.Fatalf("expected report html to include the compact preview affordance, got:\n%s", text)
 	}
 	if !strings.Contains(text, `class="lightbox"`) {
@@ -121,6 +289,54 @@ func TestReportEmbedsScreenshotPreviews(t *testing.T) {
 	}
 	if strings.Contains(text, `<img src="artifacts/`) {
 		t.Fatalf("expected report html image tags to use embedded data urls, got:\n%s", text)
+	}
+}
+
+func TestReportDisplaysEvidenceTimestamps(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID: "happy-path",
+		SessionID:  "browser-1",
+		ReportPath: report,
+		Screenshots: map[string]string{
+			"desktop-success": desktopShot,
+		},
+		PassAssertions: []string{
+			"console_errors = 0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reportHTML, err := os.ReadFile(filepath.Join(store.RunDir(run), "report.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(reportHTML)
+	if !strings.Contains(text, `class="evidence-timestamp"`) {
+		t.Fatalf("expected report html to include evidence timestamps, got:\n%s", text)
+	}
+	if !strings.Contains(text, "Captured:") {
+		t.Fatalf("expected report html to include 'Captured:' timestamp label, got:\n%s", text)
+	}
+	if !strings.Contains(text, "UTC") {
+		t.Fatalf("expected report html to include UTC timestamp, got:\n%s", text)
 	}
 }
 
@@ -159,13 +375,13 @@ func TestReportEmbedsTranscriptAsCollapsedLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(reportHTML)
-	if !strings.Contains(text, `class="artifact-details"`) {
+	if !strings.Contains(text, `class="transcript"`) {
 		t.Fatalf("expected report html to include collapsible transcript markup, got:\n%s", text)
 	}
-	if !strings.Contains(text, "Embedded log transcript. Expand to inspect.") {
+	if !strings.Contains(text, "Transcript") {
 		t.Fatalf("expected report html to describe the inline transcript, got:\n%s", text)
 	}
-	if !strings.Contains(text, `class="artifact-log"`) {
+	if !strings.Contains(text, `class="log"`) {
 		t.Fatalf("expected report html to include the embedded transcript body, got:\n%s", text)
 	}
 	if !strings.Contains(text, "&lt;status&gt; ready &amp; waiting") {
@@ -417,8 +633,8 @@ func TestEvaluateRequiresCurlForScenarioModeEdgeCases(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	for _, scenario := range run.Scenarios {
+	for i, scenario := range run.Scenarios {
+		desktopShot := writeFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenario.ID))
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
 			ScenarioID: scenario.ID,
 			SessionID:  "browser-1",
@@ -698,18 +914,22 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 	}))
 	defer server.Close()
 
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
 	successReport := writeFixture(t, repo, "success-report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	failureReport := writeFixture(t, repo, "failure-report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 1))
+
+	scenarioCounter := 0
+	uniqueShot := func(label string) string {
+		scenarioCounter++
+		return writeFixture(t, repo, fmt.Sprintf("%s-%d.png", label, scenarioCounter), fmt.Sprintf("%s-image-%d", label, scenarioCounter))
+	}
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
 		ReportPath: successReport,
 		Screenshots: map[string]string{
-			"desktop-success": desktopShot,
-			"mobile-success":  mobileShot,
+			"desktop-success": uniqueShot("desktop"),
+			"mobile-success":  uniqueShot("mobile"),
 		},
 		PassAssertions: []string{
 			"final_url contains /dashboard",
@@ -726,7 +946,7 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 		SessionID:  "browser-1",
 		ReportPath: failureReport,
 		Screenshots: map[string]string{
-			"desktop-failure": desktopShot,
+			"desktop-failure": uniqueShot("desktop"),
 		},
 		PassAssertions: []string{
 			"final_url contains /login",
@@ -741,10 +961,10 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 			continue
 		}
 		screenshots := map[string]string{
-			"desktop-edge": desktopShot,
+			"desktop-edge": uniqueShot("desktop"),
 		}
 		if scenario.Category == "mobile or responsive behavior" {
-			screenshots["mobile-edge"] = mobileShot
+			screenshots["mobile-edge"] = uniqueShot("mobile")
 		}
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
 			ScenarioID:  scenario.ID,
@@ -865,9 +1085,9 @@ func TestEvaluateRequiresGlobalMobileScreenshotCoverage(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "desktop-only-report.json", sampleDesktopOnlyBrowserReport("http://127.0.0.1:3000/dashboard"))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
 
-	for _, scenarioID := range []string{"happy-path", "failure-path"} {
+	for i, scenarioID := range []string{"happy-path", "failure-path"} {
+		desktopShot := writeFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenarioID))
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
 			ScenarioID: scenarioID,
 			SessionID:  "browser-1",

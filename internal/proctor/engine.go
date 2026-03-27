@@ -232,6 +232,17 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
 
+	maxAge := opts.MaxScreenshotAge
+	if maxAge == 0 {
+		maxAge = DefaultMaxScreenshotAge
+	}
+	if err := validateScreenshotFreshness(artifacts, maxAge); err != nil {
+		return err
+	}
+	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
+		return err
+	}
+
 	reportData, err := ParseBrowserReport(opts.ReportPath)
 	if err != nil {
 		return err
@@ -311,6 +322,17 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	reportArtifact.Kind = ArtifactJSONReport
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
+
+	maxAge := opts.MaxScreenshotAge
+	if maxAge == 0 {
+		maxAge = DefaultMaxScreenshotAge
+	}
+	if err := validateScreenshotFreshness(artifacts, maxAge); err != nil {
+		return err
+	}
+	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
+		return err
+	}
 
 	reportData, err := ParseIOSReport(opts.ReportPath)
 	if err != nil {
@@ -467,6 +489,17 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	transcriptArtifact.MediaType = "text/plain"
 	artifacts = append(artifacts, transcriptArtifact)
 
+	maxAge := opts.MaxScreenshotAge
+	if maxAge == 0 {
+		maxAge = DefaultMaxScreenshotAge
+	}
+	if err := validateScreenshotFreshness(artifacts, maxAge); err != nil {
+		return err
+	}
+	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
+		return err
+	}
+
 	transcriptBytes, err := os.ReadFile(opts.TranscriptPath)
 	if err != nil {
 		return err
@@ -555,6 +588,17 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	reportArtifact.Kind = ArtifactJSONReport
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
+
+	maxAge := opts.MaxScreenshotAge
+	if maxAge == 0 {
+		maxAge = DefaultMaxScreenshotAge
+	}
+	if err := validateScreenshotFreshness(artifacts, maxAge); err != nil {
+		return err
+	}
+	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
+		return err
+	}
 
 	reportData, err := ParseDesktopReport(opts.ReportPath)
 	if err != nil {
@@ -1720,6 +1764,63 @@ func validateSurfaceForPlatform(surface, platform string) error {
 		}
 	}
 	return fmt.Errorf("%s evidence is not valid for a %s platform run", surface, platform)
+}
+
+// DefaultMaxScreenshotAge is the default maximum age for screenshot source files.
+var DefaultMaxScreenshotAge = 30 * time.Minute
+
+func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string, artifacts []Artifact) error {
+	existing, err := store.LoadEvidence(run)
+	if err != nil {
+		return err
+	}
+
+	// Build index of image SHA256 → (scenario ID, artifact label) from other scenarios.
+	type artifactRef struct {
+		scenarioID string
+		label      string
+	}
+	index := map[string]artifactRef{}
+	for _, item := range existing {
+		if item.ScenarioID == currentScenarioID {
+			continue
+		}
+		for _, artifact := range item.Artifacts {
+			if artifact.Kind != ArtifactImage {
+				continue
+			}
+			if _, exists := index[artifact.SHA256]; !exists {
+				index[artifact.SHA256] = artifactRef{scenarioID: item.ScenarioID, label: artifact.Label}
+			}
+		}
+	}
+
+	for _, artifact := range artifacts {
+		if artifact.Kind != ArtifactImage {
+			continue
+		}
+		if ref, exists := index[artifact.SHA256]; exists {
+			return fmt.Errorf("screenshot %q has identical content to artifact %q in scenario %q; each scenario requires unique evidence", artifact.Label, ref.label, ref.scenarioID)
+		}
+	}
+	return nil
+}
+
+func validateScreenshotFreshness(artifacts []Artifact, maxAge time.Duration) error {
+	now := time.Now().UTC()
+	for _, artifact := range artifacts {
+		if artifact.Kind != ArtifactImage {
+			continue
+		}
+		if artifact.SourceMtime.IsZero() {
+			continue
+		}
+		age := now.Sub(artifact.SourceMtime)
+		if age > maxAge {
+			return fmt.Errorf("screenshot %q is too old (modified %s ago, max %s); capture a fresh screenshot", artifact.Label, age.Round(time.Second), maxAge)
+		}
+	}
+	return nil
 }
 
 func checkAssertionFailures(assertions []Assertion) error {

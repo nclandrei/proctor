@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nclandrei/proctor/internal/proctor"
 )
@@ -185,6 +186,7 @@ func runRecordBrowser(store *proctor.Store, run proctor.Run, args []string) erro
 	var screenshots stringList
 	var passAssertions stringList
 	var failAssertions stringList
+	var maxScreenshotAge time.Duration
 	opts := proctor.BrowserRecordOptions{}
 	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
 	fs.StringVar(&opts.SessionID, "session", "", "")
@@ -193,6 +195,7 @@ func runRecordBrowser(store *proctor.Store, run proctor.Run, args []string) erro
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
+	fs.DurationVar(&maxScreenshotAge, "max-screenshot-age", proctor.DefaultMaxScreenshotAge, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -206,6 +209,7 @@ func runRecordBrowser(store *proctor.Store, run proctor.Run, args []string) erro
 	}
 	opts.PassAssertions = passAssertions
 	opts.FailAssertions = failAssertions
+	opts.MaxScreenshotAge = maxScreenshotAge
 	if err := proctor.RecordBrowser(store, run, opts); err != nil {
 		return err
 	}
@@ -219,6 +223,7 @@ func runRecordIOS(store *proctor.Store, run proctor.Run, args []string) error {
 	var screenshots stringList
 	var passAssertions stringList
 	var failAssertions stringList
+	var maxScreenshotAge time.Duration
 	opts := proctor.IOSRecordOptions{}
 	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
 	fs.StringVar(&opts.SessionID, "session", "", "")
@@ -227,6 +232,7 @@ func runRecordIOS(store *proctor.Store, run proctor.Run, args []string) error {
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
+	fs.DurationVar(&maxScreenshotAge, "max-screenshot-age", proctor.DefaultMaxScreenshotAge, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -240,6 +246,7 @@ func runRecordIOS(store *proctor.Store, run proctor.Run, args []string) error {
 	}
 	opts.PassAssertions = passAssertions
 	opts.FailAssertions = failAssertions
+	opts.MaxScreenshotAge = maxScreenshotAge
 	if err := proctor.RecordIOS(store, run, opts); err != nil {
 		return err
 	}
@@ -277,6 +284,7 @@ func runRecordCLI(store *proctor.Store, run proctor.Run, args []string) error {
 	var passAssertions stringList
 	var failAssertions stringList
 	var exitCodeText string
+	var maxScreenshotAge time.Duration
 	opts := proctor.CLIRecordOptions{}
 	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
 	fs.StringVar(&opts.SessionID, "session", "", "")
@@ -287,6 +295,7 @@ func runRecordCLI(store *proctor.Store, run proctor.Run, args []string) error {
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
+	fs.DurationVar(&maxScreenshotAge, "max-screenshot-age", proctor.DefaultMaxScreenshotAge, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -307,6 +316,7 @@ func runRecordCLI(store *proctor.Store, run proctor.Run, args []string) error {
 	}
 	opts.PassAssertions = passAssertions
 	opts.FailAssertions = failAssertions
+	opts.MaxScreenshotAge = maxScreenshotAge
 	if err := proctor.RecordCLI(store, run, opts); err != nil {
 		return err
 	}
@@ -320,6 +330,7 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 	var screenshots stringList
 	var passAssertions stringList
 	var failAssertions stringList
+	var maxScreenshotAge time.Duration
 	opts := proctor.DesktopRecordOptions{}
 	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
 	fs.StringVar(&opts.SessionID, "session", "", "")
@@ -328,6 +339,7 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
+	fs.DurationVar(&maxScreenshotAge, "max-screenshot-age", proctor.DefaultMaxScreenshotAge, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -341,6 +353,7 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 	}
 	opts.PassAssertions = passAssertions
 	opts.FailAssertions = failAssertions
+	opts.MaxScreenshotAge = maxScreenshotAge
 	if err := proctor.RecordDesktop(store, run, opts); err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -33,8 +34,6 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
     "fatalLogs": 0
   }
 }`)
-	screenshotPath := writeCLIFile(t, repoRoot, "library.png", "image")
-
 	withWorkingDirectory(t, repoRoot, func() {
 		if err := run([]string{
 			"start",
@@ -61,7 +60,8 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+		for i, scenarioID := range []string{"happy-path", "failure-path"} {
+			screenshotPath := writeCLIFile(t, repoRoot, fmt.Sprintf("library-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
 			if err := run([]string{
 				"record", "ios",
 				"--scenario", scenarioID,

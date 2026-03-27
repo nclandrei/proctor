@@ -146,6 +146,11 @@ func (s *Store) CopyArtifact(run Run, surface, scenarioID, label, sourcePath str
 	}
 	defer src.Close()
 
+	srcInfo, err := src.Stat()
+	if err != nil {
+		return Artifact{}, err
+	}
+
 	ext := filepath.Ext(sourcePath)
 	if ext == "" {
 		ext = ".dat"
@@ -166,10 +171,11 @@ func (s *Store) CopyArtifact(run Run, surface, scenarioID, label, sourcePath str
 		return Artifact{}, err
 	}
 	return Artifact{
-		Label:  label,
-		Path:   relativePath,
-		SHA256: hex.EncodeToString(hasher.Sum(nil)),
-		Source: sourcePath,
+		Label:       label,
+		Path:        relativePath,
+		SHA256:      hex.EncodeToString(hasher.Sum(nil)),
+		Source:      sourcePath,
+		SourceMtime: srcInfo.ModTime().UTC(),
 	}, nil
 }
 

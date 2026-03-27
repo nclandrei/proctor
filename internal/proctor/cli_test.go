@@ -57,7 +57,8 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	terminalShot := writeFixture(t, repo, "terminal.png", "terminal-image")
+	terminalShotHappy := writeFixture(t, repo, "terminal-happy.png", "terminal-image-happy")
+	terminalShotFailure := writeFixture(t, repo, "terminal-failure.png", "terminal-image-failure")
 	happyTranscript := writeFixture(t, repo, "happy-pane.txt", "Usage:\n  demo help\nonboarding prompt")
 	failureTranscript := writeFixture(t, repo, "failure-pane.txt", "error: prompt not found")
 	happyExitCode := 0
@@ -70,7 +71,7 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 		TranscriptPath: happyTranscript,
 		ExitCode:       &happyExitCode,
 		Screenshots: map[string]string{
-			"terminal-happy": terminalShot,
+			"terminal-happy": terminalShotHappy,
 		},
 		PassAssertions: []string{
 			"output contains Usage:",
@@ -91,7 +92,7 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 		TranscriptPath: failureTranscript,
 		ExitCode:       &failureExitCode,
 		Screenshots: map[string]string{
-			"terminal-failure": terminalShot,
+			"terminal-failure": terminalShotFailure,
 		},
 		PassAssertions: []string{
 			"output contains prompt not found",

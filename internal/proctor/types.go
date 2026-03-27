@@ -189,12 +189,13 @@ type Assertion struct {
 }
 
 type Artifact struct {
-	Kind      string `json:"kind"`
-	Label     string `json:"label"`
-	Path      string `json:"path"`
-	SHA256    string `json:"sha256"`
-	Source    string `json:"source,omitempty"`
-	MediaType string `json:"media_type,omitempty"`
+	Kind        string    `json:"kind"`
+	Label       string    `json:"label"`
+	Path        string    `json:"path"`
+	SHA256      string    `json:"sha256"`
+	Source      string    `json:"source,omitempty"`
+	MediaType   string    `json:"media_type,omitempty"`
+	SourceMtime time.Time `json:"source_mtime,omitempty"`
 }
 
 type IOSTarget struct {
@@ -300,33 +301,36 @@ type StartOptions struct {
 }
 
 type BrowserRecordOptions struct {
-	ScenarioID     string
-	SessionID      string
-	Tool           string
-	Screenshots    map[string]string
-	ReportPath     string
-	PassAssertions []string
-	FailAssertions []string
+	ScenarioID       string
+	SessionID        string
+	Tool             string
+	Screenshots      map[string]string
+	ReportPath       string
+	PassAssertions   []string
+	FailAssertions   []string
+	MaxScreenshotAge time.Duration
 }
 
 type IOSRecordOptions struct {
-	ScenarioID     string
-	SessionID      string
-	Tool           string
-	Screenshots    map[string]string
-	ReportPath     string
-	PassAssertions []string
-	FailAssertions []string
+	ScenarioID       string
+	SessionID        string
+	Tool             string
+	Screenshots      map[string]string
+	ReportPath       string
+	PassAssertions   []string
+	FailAssertions   []string
+	MaxScreenshotAge time.Duration
 }
 
 type DesktopRecordOptions struct {
-	ScenarioID     string
-	SessionID      string
-	Tool           string
-	Screenshots    map[string]string
-	ReportPath     string
-	PassAssertions []string
-	FailAssertions []string
+	ScenarioID       string
+	SessionID        string
+	Tool             string
+	Screenshots      map[string]string
+	ReportPath       string
+	PassAssertions   []string
+	FailAssertions   []string
+	MaxScreenshotAge time.Duration
 }
 
 type CurlRecordOptions struct {
@@ -337,15 +341,16 @@ type CurlRecordOptions struct {
 }
 
 type CLIRecordOptions struct {
-	ScenarioID     string
-	SessionID      string
-	Tool           string
-	Command        string
-	TranscriptPath string
-	ExitCode       *int
-	Screenshots    map[string]string
-	PassAssertions []string
-	FailAssertions []string
+	ScenarioID       string
+	SessionID        string
+	Tool             string
+	Command          string
+	TranscriptPath   string
+	ExitCode         *int
+	Screenshots      map[string]string
+	PassAssertions   []string
+	FailAssertions   []string
+	MaxScreenshotAge time.Duration
 }
 
 type Evaluation struct {

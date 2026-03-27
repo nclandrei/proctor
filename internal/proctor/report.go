@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 type scenarioReport struct {
@@ -26,6 +27,7 @@ type evidenceHTMLReport struct {
 	Summary    []string
 	Assertions []Assertion
 	Artifacts  []artifactHTMLReport
+	CreatedAt  time.Time
 }
 
 type artifactHTMLReport struct {
@@ -173,643 +175,227 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 		"scenarioSurfaces":     scenarioSurfaces,
 		"passedScenarioCount":  passedScenarioCount,
 		"failedScenarioCount":  failedScenarioCount,
+		"totalScenarioCount":   totalScenarioCount,
 		"curlModeLabel":        curlModeLabel,
 		"runHasHTTPSummary":    runHasHTTPSummary,
 		"runSurfaceLabel":      runSurfaceLabel,
 		"runTargetLabel":       runTargetLabel,
 		"runTargetValue":       runTargetValue,
+		"formatTimestamp":      formatTimestamp,
 	}).Parse(`<!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="color-scheme" content="dark">
-  <title>Proctor report - {{ .Run.Feature }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{ .Run.Feature }} · Proctor</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #081017;
-      --panel: rgba(11, 20, 31, 0.86);
-      --panel-strong: rgba(8, 16, 23, 0.96);
-      --ink: #f5f3ef;
-      --muted: #a8b0bb;
-      --line: rgba(148, 163, 184, 0.18);
-      --ok: #71f7b8;
-      --ok-bg: rgba(34, 197, 94, 0.16);
-      --bad: #ff8d8d;
-      --bad-bg: rgba(239, 68, 68, 0.16);
-      --accent: #7dd3fc;
-      --accent-soft: rgba(34, 211, 238, 0.14);
-      --shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
+    :root { --bg: #faf9f6; --border: #ddd; --muted: #666; --pass: #1a7f37; --pass-bg: #dafbe1; --fail: #cf222e; --fail-bg: #ffebe9; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #161b22; --border: #30363d; --muted: #8b949e; --pass: #7ee787; --pass-bg: rgba(46,160,67,0.15); --fail: #ff7b72; --fail-bg: rgba(248,81,73,0.15); }
+      body { color: #e6edf3; }
+      code { background: #262c36; }
+      .lightbox-panel { background: #0d1117; }
     }
     * { box-sizing: border-box; }
-    html { background: var(--bg); }
-    body {
-      margin: 0;
-      background:
-        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 28%),
-        radial-gradient(circle at top right, rgba(251, 191, 36, 0.10), transparent 22%),
-        linear-gradient(180deg, #09131d 0%, var(--bg) 100%);
-      color: var(--ink);
-      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-      line-height: 1.55;
-    }
-    code {
-      background: rgba(148, 163, 184, 0.12);
-      padding: 2px 6px;
-      border-radius: 999px;
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.92em;
-    }
-    a { color: var(--accent); }
-    .page {
-      max-width: 1180px;
-      margin: 0 auto;
-      padding: 28px;
-    }
-    .hero {
-      background: linear-gradient(135deg, rgba(9, 20, 31, 0.98), rgba(15, 23, 42, 0.92));
-      border: 1px solid rgba(125, 211, 252, 0.14);
-      border-radius: 28px;
-      padding: 28px;
-      box-shadow: var(--shadow);
-      margin-bottom: 24px;
-    }
-    .eyebrow {
-      display: inline-block;
-      margin-bottom: 12px;
-      padding: 6px 12px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.82rem;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .hero-top {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-    }
-    h1, h2, h3, h4 {
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      letter-spacing: -0.02em;
-      margin: 0;
-    }
+    body { max-width: 760px; margin: 32px auto; padding: 0 20px; font: 14px/1.6 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif; color: #1f2328; background: var(--bg); }
+    h1 { font-size: 1.5em; margin: 0 0 2px; }
+    h2 { font-size: 1.15em; margin: 28px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 1em; margin: 12px 0 4px; }
+    h4 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 10px 0 4px; }
+    code { font: 0.9em/1 ui-monospace,SFMono-Regular,Menlo,monospace; background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+    a { color: #0969da; }
     figure { margin: 0; }
-    h1 { font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; margin-bottom: 10px; }
-    h2 { font-size: 1.35rem; margin-bottom: 14px; }
-    h3 { font-size: 1.05rem; margin-bottom: 6px; }
-    h4 { font-size: 0.98rem; margin-bottom: 10px; }
-    p { margin: 0; }
-    .lead {
-      max-width: 70ch;
-      color: var(--muted);
-      font-size: 1.02rem;
-    }
-    .status-pill,
-    .surface-pill,
-    .kind-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 12px;
-      border-radius: 999px;
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.84rem;
-    }
-    .status-pill.ok,
-    .surface-pill.ok { color: var(--ok); background: var(--ok-bg); }
-    .status-pill.bad,
-    .surface-pill.bad { color: var(--bad); background: var(--bad-bg); }
-    .kind-pill { color: var(--accent); background: rgba(15, 118, 110, 0.08); }
-    .scenario-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.8rem;
-      border: 1px solid transparent;
-    }
-    .scenario-pill.ok {
-      color: var(--ok);
-      background: rgba(34, 197, 94, 0.12);
-      border-color: rgba(113, 247, 184, 0.22);
-    }
-    .scenario-pill.bad {
-      color: var(--bad);
-      background: rgba(239, 68, 68, 0.12);
-      border-color: rgba(255, 141, 141, 0.2);
-    }
-    .summary-grid,
-    .coverage-grid,
-    .scenario-grid {
-      display: grid;
-      gap: 16px;
-    }
-    .summary-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 22px; }
-    .coverage-grid,
-    .scenario-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-    .summary-card,
-    .coverage-card,
-    .scenario-card,
-    .evidence-block,
-    .global-gaps {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      box-shadow: var(--shadow);
-    }
-    .summary-card,
-    .coverage-card,
-    .global-gaps { padding: 18px; }
-    .summary-label {
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.8rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 10px;
-    }
-    .summary-value {
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      font-size: 1.02rem;
-      word-break: break-word;
-    }
-    .section {
-      margin-top: 28px;
-    }
-    .section-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .section-note {
-      color: var(--muted);
-      font-size: 0.96rem;
-    }
-    .scenario-rollup {
-      margin-top: 22px;
-      padding-top: 22px;
-      border-top: 1px solid var(--line);
-    }
-    .scenario-strip {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 14px;
-    }
-    .coverage-card .status-note,
-    .scenario-meta,
-    .summary-list,
-    .assertion-list,
-    .gap-list {
-      color: var(--muted);
-    }
-    .coverage-card ul,
-    .summary-list,
-    .assertion-list,
-    .gap-list {
-      margin: 10px 0 0;
-      padding-left: 18px;
-    }
-    .scenario-card {
-      padding: 22px;
-      display: grid;
-      gap: 18px;
-      border-top: 6px solid rgba(113, 247, 184, 0.22);
-    }
-    .scenario-card.fail {
-      border-top-color: rgba(255, 141, 141, 0.3);
-    }
-    .scenario-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-    }
-    .scenario-meta {
-      margin-top: 8px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .scenario-status {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .evidence-stack {
-      display: grid;
-      gap: 14px;
-    }
-    .evidence-block {
-      padding: 16px;
-      background: rgba(15, 23, 42, 0.72);
-    }
-    .artifacts {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      margin-top: 14px;
-    }
-    .artifact-card {
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 12px;
-      background: rgba(8, 16, 23, 0.62);
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
-    .artifact-card.transcript-card {
-      grid-column: 1 / -1;
-    }
-    .artifact-card-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-    }
-    .artifact-title {
-      font-weight: 600;
-      word-break: break-word;
-    }
-    .artifact-link {
-      color: var(--muted);
-      font-size: 0.9rem;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .artifact-link:hover { color: var(--accent); }
-    .artifact-preview {
-      display: block;
-      color: inherit;
-      text-decoration: none;
-      cursor: zoom-in;
-    }
-    .artifact-frame {
-      min-height: 180px;
-      max-height: 220px;
-      padding: 10px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(2, 6, 23, 0.9);
-      display: grid;
-      place-items: center;
-      overflow: hidden;
-    }
-    .artifact-preview img,
-    .lightbox-image {
-      width: 100%;
-      display: block;
-      border: 1px solid var(--line);
-      background: rgba(2, 6, 23, 0.9);
-    }
-    .artifact-preview img {
-      height: 100%;
-      max-height: 198px;
-      object-fit: contain;
-      object-position: top center;
-      border-radius: 10px;
-    }
-    .artifact-preview-note,
-    .artifact-note {
-      color: var(--muted);
-      font-size: 0.88rem;
-    }
-    .artifact-details {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(2, 6, 23, 0.9);
-      overflow: hidden;
-    }
-    .artifact-summary {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      padding: 12px 14px;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-    .artifact-summary-meta {
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.8rem;
-      color: var(--accent);
-      white-space: nowrap;
-    }
-    .artifact-log {
-      margin: 0;
-      padding: 14px;
-      border-top: 1px solid var(--line);
-      max-height: 320px;
-      overflow: auto;
-      background: rgba(2, 6, 23, 0.94);
-      color: var(--ink);
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.85rem;
-      line-height: 1.55;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .lightbox {
-      position: fixed;
-      inset: 0;
-      display: none;
-      padding: 16px;
-      z-index: 999;
-    }
-    .lightbox:target {
-      display: grid;
-      place-items: center;
-    }
-    .lightbox-backdrop {
-      position: absolute;
-      inset: 0;
-      background: rgba(2, 6, 23, 0.84);
-      backdrop-filter: blur(10px);
-    }
-    .lightbox-panel {
-      position: relative;
-      z-index: 1;
-      width: min(1100px, calc(100vw - 32px));
-      max-height: calc(100vh - 32px);
-      overflow: auto;
-      margin: 0;
-      padding: 18px;
-      border: 1px solid rgba(125, 211, 252, 0.18);
-      border-radius: 24px;
-      background: rgba(8, 16, 23, 0.96);
-      box-shadow: var(--shadow);
-    }
-    .lightbox-panel figcaption { font-weight: 600; }
-    .lightbox-top {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: center;
-      margin-bottom: 14px;
-    }
-    .lightbox-close {
-      display: inline-flex;
-      align-items: center;
-      padding: 7px 12px;
-      border-radius: 999px;
-      color: var(--ink);
-      background: rgba(148, 163, 184, 0.14);
-      text-decoration: none;
-    }
-    .lightbox-image {
-      height: auto;
-      border-radius: 18px;
-    }
-    .assertion-list li {
-      margin-bottom: 10px;
-    }
-    .assertion-list li.pass { color: var(--ok); }
-    .assertion-list li.fail { color: var(--bad); }
-    .inline-detail {
-      display: block;
-      margin-top: 4px;
-    }
-    .global-gaps { margin-top: 26px; }
-    @media (max-width: 720px) {
-      .page { padding: 16px; }
-      .hero,
-      .scenario-card,
-      .summary-card,
-      .coverage-card,
-      .global-gaps { border-radius: 18px; }
-      .summary-grid,
-      .coverage-grid,
-      .scenario-grid { grid-template-columns: 1fr; }
-    }
+    .pass { color: var(--pass); }
+    .fail { color: var(--fail); }
+    .badge { display: inline-block; font: 600 0.75em ui-monospace,monospace; padding: 1px 6px; border-radius: 3px; }
+    .badge.ok, .badge.pass { background: var(--pass-bg); color: var(--pass); }
+    .badge.bad, .badge.fail { background: var(--fail-bg); color: var(--fail); }
+    .muted { color: var(--muted); font-size: 0.85em; }
+    .small { font-size: 0.8em; }
+    .detail { display: block; font-size: 0.85em; color: var(--muted); margin-left: 2px; }
+    .summary-grid { display: flex; gap: 10px; margin: 12px 0; }
+    .summary-card { flex: 1; text-align: center; padding: 10px; border: 1px solid var(--border); border-radius: 4px; }
+    .summary-card .big-number { font-size: 1.8em; font-weight: 700; }
+    .summary-card .big-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-top: 2px; }
+    .pass-card .big-number { color: var(--pass); }
+    .fail-card .big-number { color: var(--fail); }
+    .total-card .big-number { color: var(--muted); }
+    .meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 16px; margin: 10px 0; }
+    .meta-item { padding: 6px 0; border-top: 1px solid var(--border); }
+    .meta-item dt { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .meta-item dd { font-size: 0.9em; word-break: break-word; }
+    .rollup-strip { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+    .rollup-chip { font-size: 0.78em; padding: 2px 6px; border: 1px solid var(--border); border-radius: 3px; }
+    .rollup-chip.ok { color: var(--pass); border-color: var(--pass); }
+    .rollup-chip.bad { color: var(--fail); border-color: var(--fail); }
+    .coverage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
+    .coverage-card { padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; }
+    .coverage-card h4 { margin: 0 0 2px; }
+    .coverage-card ul { padding-left: 16px; font-size: 0.85em; color: var(--muted); }
+    details.scenario { border: 1px solid var(--border); border-radius: 4px; margin: 6px 0; }
+    details.scenario > summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 500; font-size: 0.9em; list-style: none; }
+    details.scenario > summary::-webkit-details-marker { display: none; }
+    details.scenario > summary::marker { content: ""; }
+    .scenario-label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .kind { font-size: 0.72em; color: var(--muted); padding: 1px 4px; border: 1px solid var(--border); border-radius: 2px; }
+    .surface-indicators { display: flex; gap: 6px; flex-wrap: wrap; }
+    .surface-dot { font-size: 0.72em; font-weight: 500; }
+    .surface-dot.ok { color: var(--pass); }
+    .surface-dot.bad { color: var(--fail); }
+    .scenario-body { padding: 6px 12px 12px; border-top: 1px solid var(--border); }
+    .scenario-id { margin: 6px 0; }
+    .evidence { margin: 10px 0; padding-top: 8px; border-top: 1px solid var(--border); }
+    .evidence-timestamp { font-size: 0.78em; color: var(--muted); margin-bottom: 4px; }
+    .kv-list { list-style: none; padding: 0; margin: 4px 0; }
+    .kv-list li { font-size: 0.85em; color: var(--muted); }
+    .assertion-list { list-style: none; padding: 0; }
+    .assertion-list li { padding: 3px 0; font-size: 0.88em; }
+    .assertion-tag { font: 600 0.7em ui-monospace,monospace; padding: 1px 4px; border-radius: 2px; margin-right: 4px; }
+    .assertion-tag.pass { background: var(--pass-bg); color: var(--pass); }
+    .assertion-tag.fail { background: var(--fail-bg); color: var(--fail); }
+    .issue-list { padding-left: 16px; font-size: 0.85em; color: var(--fail); }
+    .meta-list { padding-left: 16px; font-size: 0.85em; color: var(--muted); }
+    .artifact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin: 8px 0; }
+    .artifact { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .artifact.artifact-wide { grid-column: 1 / -1; }
+    .artifact-head { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 0.8em; }
+    .artifact-name { font-weight: 600; }
+    .artifact-file { color: var(--muted); font-size: 0.85em; }
+    .thumb { display: block; cursor: zoom-in; }
+    .thumb img { width: 100%; max-height: 180px; object-fit: contain; display: block; border-top: 1px solid var(--border); }
+    .thumb-note { font-size: 0.7em; color: var(--muted); padding: 2px 8px; }
+    .transcript { border-top: 1px solid var(--border); }
+    .transcript > summary { padding: 6px 8px; cursor: pointer; font-size: 0.82em; color: var(--muted); }
+    .line-count { font-size: 0.8em; color: #0969da; }
+    .log { margin: 0; padding: 8px; font: 0.8em/1.5 ui-monospace,monospace; max-height: 300px; overflow: auto; border-top: 1px solid var(--border); white-space: pre-wrap; word-break: break-word; }
+    .lightbox { position: fixed; inset: 0; display: none; z-index: 100; padding: 20px; background: rgba(0,0,0,0.65); }
+    .lightbox:target { display: grid; place-items: center; }
+    .lightbox-bg { position: absolute; inset: 0; }
+    .lightbox-panel { position: relative; z-index: 1; max-width: 900px; width: 100%; max-height: calc(100vh - 40px); overflow: auto; background: #fff; border-radius: 4px; padding: 12px; }
+    .lightbox-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
+    .lightbox-close { font-size: 0.85em; padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); text-decoration: none; }
+    .lightbox-panel img { width: 100%; height: auto; display: block; }
+    .global-gaps { margin: 28px 0; padding: 10px 14px; border: 1px solid var(--fail); border-radius: 4px; background: var(--fail-bg); }
+    .global-gaps h2 { border: none; margin: 0 0 6px; padding: 0; }
+    .global-gaps ul { padding-left: 16px; font-size: 0.88em; }
+    @media (max-width: 600px) { .summary-grid { flex-direction: column; } .meta { grid-template-columns: 1fr; } }
+    @media print { .scenario { break-inside: avoid; } .lightbox { display: none !important; } }
   </style>
 </head>
 <body>
-  <main class="page">
-    <section class="hero">
-      <span class="eyebrow">Proctor Report</span>
-      <div class="hero-top">
-        <div>
-          <h1>{{ .Run.Feature }}</h1>
-          <p class="lead">Manual verification contract rendered from recorded evidence. The report is human-facing; the raw artifacts remain the source of truth.</p>
-        </div>
-        <div class="status-pill {{ if .Eval.Complete }}ok{{ else }}bad{{ end }}">{{ reportStatus .Eval }}</div>
-      </div>
-      <div class="summary-grid">
-        <article class="summary-card">
-          <div class="summary-label">Run ID</div>
-          <div class="summary-value"><code>{{ .Run.ID }}</code></div>
-        </article>
-        <article class="summary-card">
-          <div class="summary-label">Run Surface</div>
-          <div class="summary-value">{{ runSurfaceLabel .Run }}</div>
-        </article>
-        <article class="summary-card">
-          <div class="summary-label">{{ runTargetLabel .Run }}</div>
-          <div class="summary-value"><code>{{ runTargetValue .Run }}</code></div>
-        </article>
-        {{ if runHasHTTPSummary .Run }}
-        <article class="summary-card">
-          <div class="summary-label">Direct HTTP Verification</div>
-          <div class="summary-value">{{ curlModeLabel .Run }}</div>
-        </article>
-        {{ end }}
-        <article class="summary-card">
-          <div class="summary-label">Scenario Count</div>
-          <div class="summary-value">{{ len .Scenarios }} scenario(s)</div>
-        </article>
-      </div>
-      <section class="scenario-rollup">
-        <div class="section-head">
-          <div>
-            <h2>Scenario Rollup</h2>
-            <div class="section-note">Compact pass/fail summary before the full evidence breakdown.</div>
-          </div>
-        </div>
-        <div class="summary-grid">
-          <article class="summary-card">
-            <div class="summary-label">Passed Scenarios</div>
-            <div class="summary-value">{{ passedScenarioCount .Scenarios }}</div>
-          </article>
-          <article class="summary-card">
-            <div class="summary-label">Failed Scenarios</div>
-            <div class="summary-value">{{ failedScenarioCount .Scenarios }}</div>
-          </article>
-        </div>
-        <div class="scenario-strip">
-          {{ range .Scenarios }}
-          <span class="scenario-pill {{ scenarioTone .Eval }}">{{ .Eval.Scenario.Label }}</span>
-          {{ end }}
-        </div>
-      </section>
-	      {{ if .CurlCoverage }}
-	      <div class="section" style="margin-top: 20px;">
-	        <div class="summary-label">HTTP Risk Coverage</div>
-	        <ul class="summary-list">
-	          {{ range .CurlCoverage }}
-	          <li>
-	            <strong>{{ .Label }}</strong>
-	            <span class="inline-detail"><code>{{ .ID }}</code></span>
-	            {{ if .Endpoints }}
-	            <span class="inline-detail">{{ range $index, $endpoint := .Endpoints }}{{ if $index }}, {{ end }}<code>{{ $endpoint }}</code>{{ end }}</span>
-	            {{ end }}
-	          </li>
-	          {{ end }}
-	        </ul>
-	      </div>
-	      {{ end }}
-    </section>
+  <p style="font-size:0.7em;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:2px;">Verification Report</p>
+  <h1>{{ .Run.Feature }}</h1>
+  <p class="muted">Manual verification contract from recorded evidence. <span class="badge {{ if .Eval.Complete }}ok{{ else }}bad{{ end }}">{{ reportStatus .Eval }}</span></p>
 
-    {{ if .EdgeCoverage }}
-    <section class="section">
-      <div class="section-head">
-        <div>
-          <h2>Edge Case Coverage</h2>
-          <div class="section-note">Every category is either represented by concrete scenarios or explicitly marked not applicable.</div>
-        </div>
-      </div>
-      <div class="coverage-grid">
-        {{ range .EdgeCoverage }}
-        <article class="coverage-card">
-          <h3>{{ .Category }}</h3>
-          {{ if eq .Status "na" }}
-          <div class="status-note">Status: N/A ({{ .Reason }})</div>
-          {{ else }}
-          <div class="status-note">Status: scenario coverage required</div>
-          <ul>{{ range .ScenarioLabels }}<li>{{ . }}</li>{{ end }}</ul>
-          {{ end }}
-        </article>
-        {{ end }}
-      </div>
-    </section>
+  <div class="summary-grid">
+    <div class="summary-card pass-card"><div class="big-number">{{ passedScenarioCount .Scenarios }}</div><div class="big-label">Passed</div></div>
+    <div class="summary-card fail-card"><div class="big-number">{{ failedScenarioCount .Scenarios }}</div><div class="big-label">Failed</div></div>
+    <div class="summary-card total-card"><div class="big-number">{{ totalScenarioCount .Scenarios }}</div><div class="big-label">Total</div></div>
+  </div>
+
+  <dl class="meta">
+    <div class="meta-item"><dt>Run ID</dt><dd><code>{{ .Run.ID }}</code></dd></div>
+    <div class="meta-item"><dt>Surface</dt><dd>{{ runSurfaceLabel .Run }}</dd></div>
+    <div class="meta-item"><dt>{{ runTargetLabel .Run }}</dt><dd><code>{{ runTargetValue .Run }}</code></dd></div>
+    {{ if runHasHTTPSummary .Run }}<div class="meta-item"><dt>HTTP Verification</dt><dd>{{ curlModeLabel .Run }}</dd></div>{{ end }}
+  </dl>
+
+  {{ if .CurlCoverage }}
+  <h3>HTTP Risk Coverage</h3>
+  <ul class="meta-list">
+    {{ range .CurlCoverage }}<li><strong>{{ .Label }}</strong> <code>{{ .ID }}</code>{{ if .Endpoints }} — {{ range $i, $ep := .Endpoints }}{{ if $i }}, {{ end }}<code>{{ $ep }}</code>{{ end }}{{ end }}</li>{{ end }}
+  </ul>
+  {{ end }}
+
+  <div class="rollup-strip">
+    {{ range .Scenarios }}<span class="rollup-chip {{ scenarioTone .Eval }}">{{ .Eval.Scenario.Label }}</span>{{ end }}
+  </div>
+
+  {{ if .EdgeCoverage }}
+  <h2>Edge Case Coverage</h2>
+  <div class="coverage-grid">
+    {{ range .EdgeCoverage }}
+    <div class="coverage-card">
+      <h4>{{ .Category }}</h4>
+      {{ if eq .Status "na" }}<p class="muted">N/A — {{ .Reason }}</p>{{ else }}<p class="muted">Scenario coverage required</p><ul>{{ range .ScenarioLabels }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
+    </div>
     {{ end }}
+  </div>
+  {{ end }}
 
-    <section class="section">
-      <div class="section-head">
-        <div>
-          <h2>Scenarios</h2>
-          <div class="section-note">Each scenario below shows the contract result plus the concrete evidence Proctor recorded.</div>
-        </div>
-      </div>
-      <div class="scenario-grid">
-        {{ range .Scenarios }}
-        <article class="scenario-card {{ if scenarioComplete .Eval }}pass{{ else }}fail{{ end }}">
-          {{ $eval := .Eval }}
-          <div class="scenario-head">
-            <div>
-              <h3>{{ .Eval.Scenario.Label }}</h3>
-              <div class="scenario-meta">
-                <span class="kind-pill">{{ title .Eval.Scenario.Kind }}</span>
-                <code>{{ .Eval.Scenario.ID }}</code>
-              </div>
+  <h2>Scenarios</h2>
+  {{ range $i, $s := .Scenarios }}
+  {{ $eval := $s.Eval }}
+  <details class="scenario" id="scenario-{{ $i }}"{{ if not (scenarioComplete $eval) }} open{{ end }}>
+    <summary>
+      <span class="scenario-label">
+        <span class="badge {{ scenarioTone $eval }}">{{ if scenarioComplete $eval }}PASS{{ else }}FAIL{{ end }}</span>
+        {{ $eval.Scenario.Label }}
+        <span class="kind">{{ title $eval.Scenario.Kind }}</span>
+      </span>
+      <span class="surface-indicators">
+        {{ range scenarioSurfaces $eval.Scenario }}{{ if surfaceOK $eval . }}<span class="surface-dot ok">{{ surfaceTitle . }} ✓</span>{{ else }}<span class="surface-dot bad">{{ surfaceTitle . }} ✗</span>{{ end }}{{ end }}
+      </span>
+    </summary>
+    <div class="scenario-body">
+      <div class="scenario-id"><code>{{ $eval.Scenario.ID }}</code></div>
+      {{ if and $eval.Scenario.CurlRequired $eval.Scenario.CurlEndpoints }}<p class="muted">curl: {{ range $ci, $ep := $eval.Scenario.CurlEndpoints }}{{ if $ci }}, {{ end }}<code>{{ $ep }}</code>{{ end }}</p>{{ end }}
+      {{ range scenarioSurfaces $eval.Scenario }}{{ if not (surfaceOK $eval .) }}<ul class="issue-list">{{ range surfaceIssues $eval . }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}{{ end }}
+      {{ range $s.Evidence }}
+      <div class="evidence">
+        <h4 class="evidence-label">{{ surfaceTitle .Surface }} Evidence</h4>
+        {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">Captured: {{ formatTimestamp .CreatedAt }}</div>{{ end }}
+        {{ if .Summary }}<ul class="kv-list">{{ range .Summary }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
+        <ul class="assertion-list">
+          {{ range .Assertions }}
+          <li>
+            <span class="assertion-tag {{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">{{ if eq .Result "pass" }}PASS{{ else }}FAIL{{ end }}</span>
+            <code>{{ .Description }}</code>
+            {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ .Actual }}</code></span>{{ end }}
+            {{ if .Message }}<span class="detail">{{ .Message }}</span>{{ end }}
+          </li>
+          {{ end }}
+        </ul>
+        {{ if .Artifacts }}
+        <div class="artifact-grid">
+          {{ range .Artifacts }}
+          <div class="artifact{{ if .HasInlineText }} artifact-wide{{ end }}">
+            <div class="artifact-head"><span class="artifact-name">{{ .Label }}</span><a class="artifact-file" href="{{ .Path }}">file</a></div>
+            {{ if .InlineSource }}
+            <a class="thumb" href="#{{ .ModalID }}"><img src="{{ .InlineSource }}" alt="{{ .Label }}"></a>
+            <div class="thumb-note">Click to enlarge</div>
+            <div class="lightbox" id="{{ .ModalID }}">
+              <a class="lightbox-bg" href="#" aria-label="Close"></a>
+              <figure class="lightbox-panel">
+                <div class="lightbox-head"><figcaption>{{ .Label }}</figcaption><a class="lightbox-close" href="#">Close</a></div>
+                <img src="{{ .InlineSource }}" alt="{{ .Label }}">
+              </figure>
             </div>
-            <div class="scenario-status">
-              {{ range scenarioSurfaces .Eval.Scenario }}
-              {{ if surfaceOK $eval . }}<span class="surface-pill ok">{{ . }}: pass</span>{{ else }}<span class="surface-pill bad">{{ . }}: fail</span>{{ end }}
-              {{ end }}
-            </div>
-          </div>
-          {{ if and .Eval.Scenario.CurlRequired .Eval.Scenario.CurlEndpoints }}
-          <div class="status-note">curl contract: {{ range $index, $endpoint := .Eval.Scenario.CurlEndpoints }}{{ if $index }}, {{ end }}<code>{{ $endpoint }}</code>{{ end }}</div>
-          {{ end }}
-          {{ range scenarioSurfaces .Eval.Scenario }}
-          {{ if not (surfaceOK $eval .) }}
-          <ul class="gap-list">{{ range surfaceIssues $eval . }}<li>{{ . }}</li>{{ end }}</ul>
-          {{ end }}
-          {{ end }}
-          <div class="evidence-stack">
-            {{ range .Evidence }}
-            <section class="evidence-block">
-	              <h4>{{ surfaceTitle .Surface }} evidence</h4>
-	              {{ $summary := .Summary }}
-	              {{ if $summary }}
-              <ul class="summary-list">
-	                {{ range $summary }}
-	                <li>{{ . }}</li>
-	                {{ end }}
-              </ul>
-              {{ end }}
-              <ul class="assertion-list">
-                {{ range .Assertions }}
-                <li class="{{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">
-                  <code>{{ .Description }}</code>
-                  {{ if or .Expected .Actual }}
-                  <span class="inline-detail">expected: <code>{{ .Expected }}</code></span>
-                  <span class="inline-detail">actual: <code>{{ .Actual }}</code></span>
-                  {{ end }}
-                  {{ if .Message }}
-                  <span class="inline-detail">{{ .Message }}</span>
-                  {{ end }}
-                </li>
-                {{ end }}
-              </ul>
-              <div class="artifacts">
-                {{ range .Artifacts }}
-                <article class="artifact-card{{ if .HasInlineText }} transcript-card{{ end }}">
-                  <div class="artifact-card-head">
-                    <div class="artifact-title">{{ .Label }}</div>
-                    <a class="artifact-link" href="{{ .Path }}">artifact</a>
-                  </div>
-                  {{ if .InlineSource }}
-                  <a class="artifact-preview" href="#{{ .ModalID }}">
-                    <div class="artifact-frame">
-                      <img src="{{ .InlineSource }}" alt="{{ .Label }}">
-                    </div>
-                    <div class="artifact-preview-note">Embedded preview. Click to enlarge.</div>
-                  </a>
-                  <div class="lightbox" id="{{ .ModalID }}">
-                    <a class="lightbox-backdrop" href="#" aria-label="Close enlarged preview"></a>
-                    <figure class="lightbox-panel">
-                      <div class="lightbox-top">
-                        <figcaption>{{ .Label }}</figcaption>
-                        <a class="lightbox-close" href="#">Close</a>
-                      </div>
-                      <img class="lightbox-image" src="{{ .InlineSource }}" alt="{{ .Label }}">
-                    </figure>
-                  </div>
-                  {{ else if .HasInlineText }}
-                  <details class="artifact-details">
-                    <summary class="artifact-summary">
-                      <span>Embedded log transcript. Expand to inspect.</span>
-                      <span class="artifact-summary-meta">{{ if gt .InlineTextLineCount 0 }}{{ .InlineTextLineCount }} line(s){{ else }}empty{{ end }}</span>
-                    </summary>
-                    <pre class="artifact-log">{{ .InlineText }}</pre>
-                  </details>
-                  {{ else }}
-                  <div class="artifact-note">Linked artifact</div>
-                  {{ end }}
-                </article>
-                {{ end }}
-              </div>
-            </section>
+            {{ else if .HasInlineText }}
+            <details class="transcript">
+              <summary><span>Transcript</span> <span class="line-count">{{ if gt .InlineTextLineCount 0 }}{{ .InlineTextLineCount }} lines{{ else }}empty{{ end }}</span></summary>
+              <pre class="log">{{ .InlineText }}</pre>
+            </details>
+            {{ else }}
+            <p class="muted small" style="padding:4px 8px;">Linked artifact</p>
             {{ end }}
           </div>
-        </article>
+          {{ end }}
+        </div>
         {{ end }}
       </div>
-    </section>
+      {{ end }}
+    </div>
+  </details>
+  {{ end }}
 
-    {{ if .Eval.GlobalMissing }}
-    <section class="global-gaps">
-      <h2>Global Gaps</h2>
-      <ul class="gap-list">
-        {{ range .Eval.GlobalMissing }}<li>{{ . }}</li>{{ end }}
-      </ul>
-    </section>
-    {{ end }}
-  </main>
+  {{ if .Eval.GlobalMissing }}
+  <div class="global-gaps">
+    <h2>Global Gaps</h2>
+    <ul>{{ range .Eval.GlobalMissing }}<li>{{ . }}</li>{{ end }}</ul>
+  </div>
+  {{ end }}
 </body>
 </html>`)
 	if err != nil {
@@ -913,6 +499,7 @@ func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport) []scena
 				Surface:    item.Surface,
 				Summary:    evidenceSummaryLines(item),
 				Assertions: append([]Assertion(nil), item.Assertions...),
+				CreatedAt:  item.CreatedAt,
 			}
 			for artifactIdx, artifact := range item.Artifacts {
 				inlineText, inlineTextLineCount, hasInlineText := inlineArtifactText(runDir, artifact)
@@ -1149,6 +736,17 @@ func failedScenarioCount(items []scenarioHTMLReport) int {
 		}
 	}
 	return count
+}
+
+func totalScenarioCount(items []scenarioHTMLReport) int {
+	return len(items)
+}
+
+func formatTimestamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02 15:04:05 UTC")
 }
 
 func scenarioSurfaces(scenario Scenario) []string {

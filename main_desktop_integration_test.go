@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -24,8 +25,6 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
     "fatalLogs": 0
   }
 }`)
-	screenshotPath := writeCLIFile(t, repoRoot, "window.png", "image")
-
 	withWorkingDirectory(t, repoRoot, func() {
 		if err := run([]string{
 			"start",
@@ -51,7 +50,8 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+		for i, scenarioID := range []string{"happy-path", "failure-path"} {
+			screenshotPath := writeCLIFile(t, repoRoot, fmt.Sprintf("window-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
 			if err := run([]string{
 				"record", "desktop",
 				"--scenario", scenarioID,

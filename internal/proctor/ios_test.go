@@ -1,6 +1,7 @@
 package proctor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -270,9 +271,9 @@ func TestDonePassesWhenRequiredIOSEvidenceExists(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
-	screenshot := writeFixture(t, repo, "library.png", "library-screen")
 
-	for _, scenarioID := range []string{"happy-path", "failure-path"} {
+	for i, scenarioID := range []string{"happy-path", "failure-path"} {
+		screenshot := writeFixture(t, repo, fmt.Sprintf("library-%d.png", i), fmt.Sprintf("library-screen-%s", scenarioID))
 		if err := RecordIOS(store, run, IOSRecordOptions{
 			ScenarioID: scenarioID,
 			SessionID:  "pagena-library-1",
