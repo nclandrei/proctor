@@ -869,6 +869,10 @@ func desktopReportStructureIssues(item Evidence) []string {
 }
 
 func CompleteRun(store *Store, run Run) (Evaluation, error) {
+	age := time.Since(run.CreatedAt)
+	if age > DefaultMaxRunAge {
+		return Evaluation{}, fmt.Errorf("run expired: created %s ago (max %s); start a fresh run", age.Round(time.Second), DefaultMaxRunAge)
+	}
 	eval, err := Evaluate(store, run)
 	if err != nil {
 		return Evaluation{}, err
@@ -1791,6 +1795,11 @@ var DefaultMinScreenshotSize int64 = 10 * 1024
 // DefaultMinTranscriptBytes is the minimum content length in bytes for CLI transcript files.
 // Transcripts shorter than this are rejected as empty or meaningless.
 var DefaultMinTranscriptBytes = 10
+
+// DefaultMaxRunAge is the maximum duration a run may remain in_progress before
+// proctor done rejects it as expired. Agents must start fresh runs if they
+// exceed this window.
+var DefaultMaxRunAge = 2 * time.Hour
 
 func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string, artifacts []Artifact) error {
 	existing, err := store.LoadEvidence(run)
