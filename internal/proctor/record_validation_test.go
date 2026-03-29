@@ -1,7 +1,10 @@
 package proctor
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -292,5 +295,91 @@ func TestRecordBrowserFailsAtRecordTimeWhenAssertionsFail(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "console_errors") {
 		t.Fatalf("expected error to mention which assertion failed, got: %s", err.Error())
+	}
+}
+
+func TestCompleteRunRejectsDuplicateScreenshots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := sampleStartOptions()
+	opts.CurlMode = "skip"
+	opts.CurlSkipReason = "test only"
+	opts.CurlEndpoints = nil
+	run, err := CreateRun(store, repo, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write one screenshot file and reuse its SHA256 for two scenarios.
+	screenshotContent := writeScreenshotFixture(t, repo, "shared.png", "identical-image-content")
+
+	// Compute SHA256 of the screenshot file.
+	data, err := os.ReadFile(screenshotContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+
+	// Copy the screenshot into the run directory for both scenarios.
+	runDir := store.RunDir(run)
+	for i, scenario := range run.Scenarios {
+		artPath := fmt.Sprintf("evidence/screenshot-%d.png", i)
+		dst := filepath.Join(runDir, artPath)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		evidence := Evidence{
+			ID:         fmt.Sprintf("ev-%d", i),
+			RunID:      run.ID,
+			ScenarioID: scenario.ID,
+			Surface:    SurfaceBrowser,
+			Tier:       TierRegisteredRun,
+			CreatedAt:  time.Now().UTC(),
+			Title:      fmt.Sprintf("browser check for %s", scenario.ID),
+			Provenance: Provenance{Mode: "registered-session", Tool: "playwright"},
+			Artifacts: []Artifact{
+				{Kind: ArtifactImage, Label: "desktop", Path: artPath, SHA256: hash},
+			},
+		}
+		if err := store.AppendEvidence(run, evidence); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Evaluate should detect the duplicate.
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if eval.Complete {
+		t.Fatal("expected eval.Complete == false when screenshots are duplicated across scenarios")
+	}
+	if !containsSubstring(eval.GlobalMissing, "duplicate screenshot") {
+		t.Fatalf("expected GlobalMissing to mention duplicate screenshot, got %#v", eval.GlobalMissing)
+	}
+
+	// CompleteRun should mark the run as blocked.
+	eval, err = CompleteRun(store, run)
+	if err != nil {
+		t.Fatalf("CompleteRun failed: %v", err)
+	}
+	reloaded, err := store.LoadRun(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Status != StatusBlocked {
+		t.Fatalf("expected run status %q, got %q", StatusBlocked, reloaded.Status)
 	}
 }

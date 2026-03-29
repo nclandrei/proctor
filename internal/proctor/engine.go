@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -663,6 +664,12 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	}
 
 	eval := Evaluation{Complete: true}
+
+	if dupes := detectCrossScenarioDuplicateImages(evidence); len(dupes) > 0 {
+		eval.Complete = false
+		eval.GlobalMissing = append(eval.GlobalMissing, dupes...)
+	}
+
 	platform := normalizePlatform(run.Platform)
 	hasDesktop := true
 	hasMobile := true
@@ -1836,6 +1843,43 @@ func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string,
 		}
 	}
 	return nil
+}
+
+func detectCrossScenarioDuplicateImages(evidence []Evidence) []string {
+	type ref struct {
+		scenarioID string
+		label      string
+	}
+	index := map[string][]ref{} // sha256 -> refs
+	for _, item := range evidence {
+		for _, a := range item.Artifacts {
+			if a.Kind != ArtifactImage {
+				continue
+			}
+			index[a.SHA256] = append(index[a.SHA256], ref{item.ScenarioID, a.Label})
+		}
+	}
+	var issues []string
+	for hash, refs := range index {
+		seen := map[string]bool{}
+		var scenarios []string
+		for _, r := range refs {
+			if !seen[r.scenarioID] {
+				seen[r.scenarioID] = true
+				scenarios = append(scenarios, r.scenarioID)
+			}
+		}
+		if len(scenarios) < 2 {
+			continue
+		}
+		sort.Strings(scenarios)
+		issues = append(issues, fmt.Sprintf(
+			"duplicate screenshot across scenarios %s (sha256: %s…)",
+			strings.Join(scenarios, ", "), hash[:12],
+		))
+	}
+	sort.Strings(issues)
+	return issues
 }
 
 func validateScreenshotSize(store *Store, run Run, artifacts []Artifact, minSize int64) error {
