@@ -39,6 +39,75 @@ func TestRecordBrowserRejectsTinyScreenshot(t *testing.T) {
 	}
 }
 
+func TestRecordCLIRejectsEmptyTranscript(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleCLIStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
+	emptyTranscript := writeFixture(t, repo, "pane.txt", "")
+
+	err = RecordCLI(store, run, CLIRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "cli-1",
+		Command:        "demo help",
+		TranscriptPath: emptyTranscript,
+		Screenshots:    map[string]string{"terminal": screenshot},
+		PassAssertions: []string{"screenshot = true"},
+	})
+	if err == nil {
+		t.Fatal("expected error recording empty transcript, got nil")
+	}
+	if !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("expected error mentioning transcript too short, got: %s", err.Error())
+	}
+}
+
+func TestRecordCLIRejectsNearEmptyTranscript(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleCLIStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
+	// Just a few characters — not meaningful terminal output.
+	tinyTranscript := writeFixture(t, repo, "pane.txt", "$ ")
+
+	err = RecordCLI(store, run, CLIRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "cli-1",
+		Command:        "demo help",
+		TranscriptPath: tinyTranscript,
+		Screenshots:    map[string]string{"terminal": screenshot},
+		PassAssertions: []string{"screenshot = true"},
+	})
+	if err == nil {
+		t.Fatal("expected error recording near-empty transcript, got nil")
+	}
+	if !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("expected error mentioning transcript too short, got: %s", err.Error())
+	}
+}
+
 func TestRecordBrowserRejectsCrossPlatformEvidence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)

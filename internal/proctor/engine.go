@@ -514,6 +514,9 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 		return err
 	}
 	transcript := normalizeTranscript(string(transcriptBytes))
+	if len(transcript) < DefaultMinTranscriptBytes {
+		return fmt.Errorf("cli transcript is too short (%d bytes, minimum %d bytes); capture real terminal output", len(transcript), DefaultMinTranscriptBytes)
+	}
 	assertions, err := EvaluateCLIAssertions(opts.PassAssertions, opts.FailAssertions, CLIData{
 		Command:           strings.TrimSpace(opts.Command),
 		SessionID:         strings.TrimSpace(opts.SessionID),
@@ -1784,6 +1787,10 @@ var DefaultMaxScreenshotAge = 30 * time.Minute
 // DefaultMinScreenshotSize is the minimum file size in bytes for screenshot artifacts.
 // Screenshots smaller than this are rejected as likely placeholders (10KB).
 var DefaultMinScreenshotSize int64 = 10 * 1024
+
+// DefaultMinTranscriptBytes is the minimum content length in bytes for CLI transcript files.
+// Transcripts shorter than this are rejected as empty or meaningless.
+var DefaultMinTranscriptBytes = 10
 
 func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string, artifacts []Artifact) error {
 	existing, err := store.LoadEvidence(run)
