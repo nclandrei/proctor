@@ -232,6 +232,9 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
 
+	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -323,6 +326,9 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
 
+	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -489,6 +495,9 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	transcriptArtifact.MediaType = "text/plain"
 	artifacts = append(artifacts, transcriptArtifact)
 
+	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -589,6 +598,9 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	reportArtifact.MediaType = "application/json"
 	artifacts = append(artifacts, reportArtifact)
 
+	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -1769,6 +1781,10 @@ func validateSurfaceForPlatform(surface, platform string) error {
 // DefaultMaxScreenshotAge is the default maximum age for screenshot source files.
 var DefaultMaxScreenshotAge = 30 * time.Minute
 
+// DefaultMinScreenshotSize is the minimum file size in bytes for screenshot artifacts.
+// Screenshots smaller than this are rejected as likely placeholders (10KB).
+var DefaultMinScreenshotSize int64 = 10 * 1024
+
 func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string, artifacts []Artifact) error {
 	existing, err := store.LoadEvidence(run)
 	if err != nil {
@@ -1801,6 +1817,23 @@ func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string,
 		}
 		if ref, exists := index[artifact.SHA256]; exists {
 			return fmt.Errorf("screenshot %q has identical content to artifact %q in scenario %q; each scenario requires unique evidence", artifact.Label, ref.label, ref.scenarioID)
+		}
+	}
+	return nil
+}
+
+func validateScreenshotSize(store *Store, run Run, artifacts []Artifact, minSize int64) error {
+	for _, artifact := range artifacts {
+		if artifact.Kind != ArtifactImage {
+			continue
+		}
+		path := filepath.Join(store.RunDir(run), artifact.Path)
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("cannot stat screenshot %q: %w", artifact.Label, err)
+		}
+		if info.Size() < minSize {
+			return fmt.Errorf("screenshot %q is too small (%d bytes, minimum %d bytes); capture a real screenshot", artifact.Label, info.Size(), minSize)
 		}
 	}
 	return nil

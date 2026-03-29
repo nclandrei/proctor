@@ -57,8 +57,8 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	terminalShotHappy := writeFixture(t, repo, "terminal-happy.png", "terminal-image-happy")
-	terminalShotFailure := writeFixture(t, repo, "terminal-failure.png", "terminal-image-failure")
+	terminalShotHappy := writeScreenshotFixture(t, repo, "terminal-happy.png", "terminal-image-happy")
+	terminalShotFailure := writeScreenshotFixture(t, repo, "terminal-failure.png", "terminal-image-failure")
 	happyTranscript := writeFixture(t, repo, "happy-pane.txt", "Usage:\n  demo help\nonboarding prompt")
 	failureTranscript := writeFixture(t, repo, "failure-pane.txt", "error: prompt not found")
 	happyExitCode := 0
@@ -152,7 +152,7 @@ func TestRecordCLIRequiresTranscriptAndScreenshot(t *testing.T) {
 		SessionID:  "cli-session-1",
 		Command:    "demo help",
 		Screenshots: map[string]string{
-			"terminal": writeFixture(t, repo, "terminal.png", "terminal-image"),
+			"terminal": writeScreenshotFixture(t, repo, "terminal.png", "terminal-image"),
 		},
 		PassAssertions: []string{"screenshot = true"},
 	})
@@ -196,7 +196,7 @@ func TestCLIAssertionFailureBlocksScenario(t *testing.T) {
 		TranscriptPath: writeFixture(t, repo, "pane.txt", "Usage:\n  demo help"),
 		ExitCode:       &exitCode,
 		Screenshots: map[string]string{
-			"terminal": writeFixture(t, repo, "terminal.png", "terminal-image"),
+			"terminal": writeScreenshotFixture(t, repo, "terminal.png", "terminal-image"),
 		},
 		PassAssertions: []string{
 			"output contains definitely-missing-text",

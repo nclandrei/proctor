@@ -5,6 +5,40 @@ import (
 	"testing"
 )
 
+func TestRecordBrowserRejectsTinyScreenshot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+	// 5-byte file — well under the 10KB minimum.
+	tinyScreenshot := writeFixture(t, repo, "desktop.png", "image")
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": tinyScreenshot},
+		PassAssertions: []string{"console_errors = 0"},
+	})
+	if err == nil {
+		t.Fatal("expected error recording tiny screenshot, got nil")
+	}
+	if !strings.Contains(err.Error(), "too small") {
+		t.Fatalf("expected error mentioning screenshot too small, got: %s", err.Error())
+	}
+}
+
 func TestRecordBrowserRejectsCrossPlatformEvidence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
@@ -91,7 +125,7 @@ func TestRecordBrowserFailsAtRecordTimeWhenAssertionsFail(t *testing.T) {
 
 	// Report has 5 console errors — the assertion "console_errors = 0" should fail.
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 5, 0, 0, 0))
-	screenshot := writeFixture(t, repo, "desktop.png", "image")
+	screenshot := writeScreenshotFixture(t, repo, "desktop.png", "image")
 
 	err = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",

@@ -94,7 +94,7 @@ func TestStaleScreenshotIsRejected(t *testing.T) {
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	// Create a screenshot and set its mtime to 2 hours ago.
-	staleShot := writeFixture(t, repo, "stale.png", "stale-image")
+	staleShot := writeScreenshotFixture(t, repo, "stale.png", "stale-image")
 	staleTime := time.Now().Add(-2 * time.Hour)
 	if err := os.Chtimes(staleShot, staleTime, staleTime); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestCrossScenarioDuplicateScreenshotIsRejected(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	sharedShot := writeFixture(t, repo, "shared.png", "identical-screenshot-content")
+	sharedShot := writeScreenshotFixture(t, repo, "shared.png", "identical-screenshot-content")
 
 	// First recording succeeds.
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
@@ -177,7 +177,7 @@ func TestSameScenarioReRecordingAllowed(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	shot := writeFixture(t, repo, "desktop.png", "desktop-image-content")
+	shot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image-content")
 
 	// First recording.
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
@@ -222,7 +222,7 @@ func TestFreshScreenshotIsAccepted(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	freshShot := writeFixture(t, repo, "fresh.png", "fresh-image")
+	freshShot := writeScreenshotFixture(t, repo, "fresh.png", "fresh-image")
 
 	err = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -255,8 +255,8 @@ func TestReportEmbedsScreenshotPreviews(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -308,7 +308,7 @@ func TestReportDisplaysEvidenceTimestamps(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -634,7 +634,7 @@ func TestEvaluateRequiresCurlForScenarioModeEdgeCases(t *testing.T) {
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	for i, scenario := range run.Scenarios {
-		desktopShot := writeFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenario.ID))
+		desktopShot := writeScreenshotFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenario.ID))
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
 			ScenarioID: scenario.ID,
 			SessionID:  "browser-1",
@@ -748,8 +748,8 @@ func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -800,7 +800,7 @@ func TestBrowserWarningsAreRecordedButNotImplicitlyBlocking(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -854,7 +854,7 @@ func TestBrowserWarningsCanBeMadeBlockingWithExplicitAssertion(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
 	// Record with an intentionally failing assertion; error expected.
 	_ = RecordBrowser(store, run, BrowserRecordOptions{
@@ -920,7 +920,7 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 	scenarioCounter := 0
 	uniqueShot := func(label string) string {
 		scenarioCounter++
-		return writeFixture(t, repo, fmt.Sprintf("%s-%d.png", label, scenarioCounter), fmt.Sprintf("%s-image-%d", label, scenarioCounter))
+		return writeScreenshotFixture(t, repo, fmt.Sprintf("%s-%d.png", label, scenarioCounter), fmt.Sprintf("%s-image-%d", label, scenarioCounter))
 	}
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
@@ -1043,8 +1043,8 @@ func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 1, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	// Record with an intentionally failing assertion; error expected.
 	_ = RecordBrowser(store, run, BrowserRecordOptions{
@@ -1087,7 +1087,7 @@ func TestEvaluateRequiresGlobalMobileScreenshotCoverage(t *testing.T) {
 	report := writeFixture(t, repo, "desktop-only-report.json", sampleDesktopOnlyBrowserReport("http://127.0.0.1:3000/dashboard"))
 
 	for i, scenarioID := range []string{"happy-path", "failure-path"} {
-		desktopShot := writeFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenarioID))
+		desktopShot := writeScreenshotFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenarioID))
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
 			ScenarioID: scenarioID,
 			SessionID:  "browser-1",
@@ -1136,8 +1136,8 @@ func TestBrowserImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 2, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	// Record with implicit health checks that will fail; error expected.
 	_ = RecordBrowser(store, run, BrowserRecordOptions{
@@ -1195,8 +1195,8 @@ func TestExplicitDesktopIssueAssertionOverridesImplicitZeroCheck(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 1))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "failure-path",
@@ -1361,8 +1361,8 @@ func TestMobileScreenshotRequiresMobileReportResults(t *testing.T) {
     }
   }
 }`)
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -1430,8 +1430,8 @@ func TestBrowserReportRequiresDesktopFinalURL(t *testing.T) {
     }
   }
 }`)
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -1479,7 +1479,7 @@ func TestMobileResponsiveScenarioRequiresMobileScreenshot(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "mobile-or-responsive-behavior-layout-remains-usable-on-mobile",
@@ -1530,8 +1530,8 @@ func TestMobileResponsiveScenarioPassesWithMobileProof(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
-	desktopShot := writeFixture(t, repo, "desktop.png", "desktop-image")
-	mobileShot := writeFixture(t, repo, "mobile.png", "mobile-image")
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "mobile-or-responsive-behavior-layout-remains-usable-on-mobile",
@@ -1776,6 +1776,19 @@ func writeFixture(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// writeScreenshotFixture creates a file that exceeds DefaultMinScreenshotSize.
+// The content parameter is used as a prefix to ensure uniqueness across scenarios,
+// with padding added to reach the minimum size.
+func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	minSize := int(DefaultMinScreenshotSize) + 1
+	padded := content
+	for len(padded) < minSize {
+		padded += "\x00"
+	}
+	return writeFixture(t, dir, name, padded)
 }
 
 func containsSubstring(values []string, needle string) bool {

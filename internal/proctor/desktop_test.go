@@ -95,7 +95,7 @@ func TestRecordDesktopEvaluatesStructuredAssertions(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
-	screenshot := writeFixture(t, repo, "window.png", "window-image")
+	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
 
 	if err := RecordDesktop(store, run, DesktopRecordOptions{
 		ScenarioID: "happy-path",
@@ -146,7 +146,7 @@ func TestDesktopImplicitHealthChecksFailWhenUnaccounted(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 1, 0))
-	screenshot := writeFixture(t, repo, "window.png", "window-image")
+	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
 
 	// Record with implicit health checks that will fail; error expected.
 	_ = RecordDesktop(store, run, DesktopRecordOptions{
@@ -203,7 +203,7 @@ func TestDesktopFailAssertionReportsUnexpectedPassClearly(t *testing.T) {
 	}
 
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
-	screenshot := writeFixture(t, repo, "window.png", "window-image")
+	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
 
 	// Record with a fail-assert that unexpectedly passes; error expected.
 	_ = RecordDesktop(store, run, DesktopRecordOptions{
@@ -254,7 +254,7 @@ func TestDonePassesWhenRequiredDesktopEvidenceExists(t *testing.T) {
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
 
 	for i, scenarioID := range []string{"happy-path", "failure-path"} {
-		screenshot := writeFixture(t, repo, fmt.Sprintf("window-%d.png", i), fmt.Sprintf("window-image-%s", scenarioID))
+		screenshot := writeScreenshotFixture(t, repo, fmt.Sprintf("window-%d.png", i), fmt.Sprintf("window-image-%s", scenarioID))
 		if err := RecordDesktop(store, run, DesktopRecordOptions{
 			ScenarioID: scenarioID,
 			SessionID:  "firefox-desktop-1",
