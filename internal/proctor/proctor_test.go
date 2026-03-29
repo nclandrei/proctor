@@ -60,19 +60,19 @@ func TestCreateRunWritesExpectedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	reportText := string(report)
-	if !strings.Contains(reportText, "Verification Report") || !strings.Contains(reportText, "class=\"meta\"") {
-		t.Fatalf("expected report html to include the summary layout, got:\n%s", reportText)
+	if !strings.Contains(reportText, "Verification Report") || !strings.Contains(reportText, "class=\"meta-list\"") {
+		t.Fatalf("expected report html to include the metadata list, got:\n%s", reportText)
 	}
-	if !strings.Contains(reportText, "rollup-strip") || !strings.Contains(reportText, "--bg: #faf9f6") {
-		t.Fatalf("expected report html to include the rollup layout, got:\n%s", reportText)
+	if !strings.Contains(reportText, "summary-line") || !strings.Contains(reportText, "--bg: #ffffff") {
+		t.Fatalf("expected report html to include the summary line, got:\n%s", reportText)
 	}
-	if !strings.Contains(reportText, `class="summary-grid"`) {
-		t.Fatalf("expected report html to include summary grid, got:\n%s", reportText)
+	if !strings.Contains(reportText, `class="summary-line"`) {
+		t.Fatalf("expected report html to include summary line, got:\n%s", reportText)
 	}
-	if !strings.Contains(reportText, "pass-card") || !strings.Contains(reportText, "fail-card") || !strings.Contains(reportText, "total-card") {
-		t.Fatalf("expected report html to include all three summary cards, got:\n%s", reportText)
+	if !strings.Contains(reportText, "scenarios:") || !strings.Contains(reportText, "passed") {
+		t.Fatalf("expected report html to include inline scenario summary, got:\n%s", reportText)
 	}
-	if !strings.Contains(reportText, `<meta name="color-scheme" content="light dark">`) {
+	if !strings.Contains(reportText, `<meta name="color-scheme" content="light">`) {
 		t.Fatalf("expected report html to set color-scheme, got:\n%s", reportText)
 	}
 }

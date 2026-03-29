@@ -41,7 +41,7 @@ func TestRunReportRegeneratesReportFiles(t *testing.T) {
 	if strings.Contains(text, "stale report") {
 		t.Fatalf("expected runReport to regenerate report, got stale contents:\n%s", text)
 	}
-	if !strings.Contains(text, `<meta name="color-scheme" content="light dark">`) {
+	if !strings.Contains(text, `<meta name="color-scheme" content="light">`) {
 		t.Fatalf("expected regenerated report to set color-scheme, got:\n%s", text)
 	}
 }

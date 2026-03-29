@@ -727,6 +727,8 @@ Notes:
   - every web run must record at least one desktop screenshot and at least one mobile screenshot before proctor done can pass
   - implicit zero-issues assertions only cover console errors, page errors, failed requests, and HTTP errors
   - console warnings are recorded in the report but stay non-blocking unless you assert them explicitly
+  - screenshots must be at least 10KB; smaller files are rejected as likely placeholders
+  - screenshots must be fresh (modified within the last 30 minutes)
 ` + platformRecommendationSection(proctor.PlatformWeb, true)
 }
 
@@ -782,6 +784,9 @@ Notes:
   - Preferred, not required: use a real terminal app plus tmux or an equivalent persistent multiplexer
   - one transcript and screenshot set can be reused for multiple scenarios if it genuinely proves each one
   - every cli scenario needs a transcript, at least one screenshot, and at least one passing assertion
+  - transcripts must be at least 10 bytes; shorter files are rejected as empty
+  - screenshots must be at least 10KB; smaller files are rejected as likely placeholders
+  - screenshots must be fresh (modified within the last 30 minutes)
 ` + platformRecommendationSection(proctor.PlatformCLI, false)
 }
 
@@ -855,6 +860,8 @@ Notes:
   - one simulator report can be reused for multiple scenarios if it genuinely proves each one
   - every ios run must record at least one screenshot before proctor done can pass
   - implicit zero-issue assertions cover launch errors, crashes, and fatal logs
+  - screenshots must be at least 10KB; smaller files are rejected as likely placeholders
+  - screenshots must be fresh (modified within the last 30 minutes)
 ` + platformRecommendationSection(proctor.PlatformIOS, true)
 }
 
@@ -922,6 +929,8 @@ Notes:
   - one desktop report can be reused for multiple scenarios if it genuinely proves each one
   - every desktop run must record at least one screenshot before proctor done can pass
   - implicit zero-issue assertions cover crashes and fatal logs
+  - screenshots must be at least 10KB; smaller files are rejected as likely placeholders
+  - screenshots must be fresh (modified within the last 30 minutes)
 ` + platformRecommendationSection(proctor.PlatformDesktop, true)
 }
 
@@ -998,9 +1007,12 @@ Passes only when:
   - browser scenarios have trusted browser evidence
   - cli scenarios have trusted terminal evidence
   - ios scenarios have trusted ios evidence
+  - desktop scenarios have trusted desktop app evidence
   - the run includes the required screenshot coverage for its platform
   - required assertions pass
   - artifact hashes still match
+  - no duplicate screenshots are reused across different scenarios
+  - the run is not expired (max 2 hours from start)
 
 If the contract is incomplete, proctor done exits non-zero and prints what is
 still missing. This is the command the agent should treat as the real

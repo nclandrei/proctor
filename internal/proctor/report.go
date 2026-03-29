@@ -187,18 +187,12 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="light">
   <title>{{ .Run.Feature }} · Proctor</title>
   <style>
-    :root { --bg: #faf9f6; --border: #ddd; --muted: #666; --pass: #1a7f37; --pass-bg: #dafbe1; --fail: #cf222e; --fail-bg: #ffebe9; }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #161b22; --border: #30363d; --muted: #8b949e; --pass: #7ee787; --pass-bg: rgba(46,160,67,0.15); --fail: #ff7b72; --fail-bg: rgba(248,81,73,0.15); }
-      body { color: #e6edf3; }
-      code { background: #262c36; }
-      .lightbox-panel { background: #0d1117; }
-    }
+    :root { --bg: #ffffff; --border: #d8dee4; --muted: #59636e; --pass: #1a7f37; --pass-bg: #dafbe1; --fail: #cf222e; --fail-bg: #ffebe9; }
     * { box-sizing: border-box; }
-    body { max-width: 760px; margin: 32px auto; padding: 0 20px; font: 14px/1.6 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif; color: #1f2328; background: var(--bg); }
+    body { max-width: 760px; margin: 32px auto; padding: 0 20px; font: 14px/1.6 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif; color: #1f2328; background: var(--bg); color-scheme: light; }
     h1 { font-size: 1.5em; margin: 0 0 2px; }
     h2 { font-size: 1.15em; margin: 28px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
     h3 { font-size: 1em; margin: 12px 0 4px; }
@@ -206,6 +200,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
     code { font: 0.9em/1 ui-monospace,SFMono-Regular,Menlo,monospace; background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
     a { color: #0969da; }
     figure { margin: 0; }
+    ul, ol { padding-left: 20px; }
     .pass { color: var(--pass); }
     .fail { color: var(--fail); }
     .badge { display: inline-block; font: 600 0.75em ui-monospace,monospace; padding: 1px 6px; border-radius: 3px; }
@@ -214,35 +209,16 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
     .muted { color: var(--muted); font-size: 0.85em; }
     .small { font-size: 0.8em; }
     .detail { display: block; font-size: 0.85em; color: var(--muted); margin-left: 2px; }
-    .summary-grid { display: flex; gap: 10px; margin: 12px 0; }
-    .summary-card { flex: 1; text-align: center; padding: 10px; border: 1px solid var(--border); border-radius: 4px; }
-    .summary-card .big-number { font-size: 1.8em; font-weight: 700; }
-    .summary-card .big-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-top: 2px; }
-    .pass-card .big-number { color: var(--pass); }
-    .fail-card .big-number { color: var(--fail); }
-    .total-card .big-number { color: var(--muted); }
-    .meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 16px; margin: 10px 0; }
-    .meta-item { padding: 6px 0; border-top: 1px solid var(--border); }
-    .meta-item dt { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-    .meta-item dd { font-size: 0.9em; word-break: break-word; }
-    .rollup-strip { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
-    .rollup-chip { font-size: 0.78em; padding: 2px 6px; border: 1px solid var(--border); border-radius: 3px; }
-    .rollup-chip.ok { color: var(--pass); border-color: var(--pass); }
-    .rollup-chip.bad { color: var(--fail); border-color: var(--fail); }
-    .coverage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
-    .coverage-card { padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; }
-    .coverage-card h4 { margin: 0 0 2px; }
-    .coverage-card ul { padding-left: 16px; font-size: 0.85em; color: var(--muted); }
+    .summary-line { margin: 12px 0; font-size: 0.95em; }
+    .meta-list { padding-left: 20px; font-size: 0.9em; margin: 8px 0; }
+    .meta-list li { margin: 2px 0; }
+    .edge-list { padding-left: 20px; margin: 8px 0; }
+    .edge-list li { margin: 4px 0; font-size: 0.9em; }
+    .edge-list .edge-scenarios { padding-left: 20px; font-size: 0.85em; color: var(--muted); margin: 2px 0; }
     details.scenario { border: 1px solid var(--border); border-radius: 4px; margin: 6px 0; }
-    details.scenario > summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 500; font-size: 0.9em; list-style: none; }
+    details.scenario > summary { padding: 8px 12px; cursor: pointer; font-size: 0.9em; list-style: none; }
     details.scenario > summary::-webkit-details-marker { display: none; }
     details.scenario > summary::marker { content: ""; }
-    .scenario-label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .kind { font-size: 0.72em; color: var(--muted); padding: 1px 4px; border: 1px solid var(--border); border-radius: 2px; }
-    .surface-indicators { display: flex; gap: 6px; flex-wrap: wrap; }
-    .surface-dot { font-size: 0.72em; font-weight: 500; }
-    .surface-dot.ok { color: var(--pass); }
-    .surface-dot.bad { color: var(--fail); }
     .scenario-body { padding: 6px 12px 12px; border-top: 1px solid var(--border); }
     .scenario-id { margin: 6px 0; }
     .evidence { margin: 10px 0; padding-top: 8px; border-top: 1px solid var(--border); }
@@ -254,10 +230,9 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
     .assertion-tag { font: 600 0.7em ui-monospace,monospace; padding: 1px 4px; border-radius: 2px; margin-right: 4px; }
     .assertion-tag.pass { background: var(--pass-bg); color: var(--pass); }
     .assertion-tag.fail { background: var(--fail-bg); color: var(--fail); }
-    .issue-list { padding-left: 16px; font-size: 0.85em; color: var(--fail); }
-    .meta-list { padding-left: 16px; font-size: 0.85em; color: var(--muted); }
+    .issue-list { padding-left: 20px; font-size: 0.85em; color: var(--fail); }
     .artifact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin: 8px 0; }
-    .artifact { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .artifact { border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
     .artifact.artifact-wide { grid-column: 1 / -1; }
     .artifact-head { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 0.8em; }
     .artifact-name { font-weight: 600; }
@@ -276,30 +251,24 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
     .lightbox-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
     .lightbox-close { font-size: 0.85em; padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); text-decoration: none; }
     .lightbox-panel img { width: 100%; height: auto; display: block; }
-    .global-gaps { margin: 28px 0; padding: 10px 14px; border: 1px solid var(--fail); border-radius: 4px; background: var(--fail-bg); }
+    .global-gaps { margin: 28px 0; padding: 10px 14px; border-left: 3px solid var(--fail); background: var(--fail-bg); }
     .global-gaps h2 { border: none; margin: 0 0 6px; padding: 0; }
-    .global-gaps ul { padding-left: 16px; font-size: 0.88em; }
-    @media (max-width: 600px) { .summary-grid { flex-direction: column; } .meta { grid-template-columns: 1fr; } }
+    .global-gaps ul { padding-left: 20px; font-size: 0.88em; }
     @media print { .scenario { break-inside: avoid; } .lightbox { display: none !important; } }
   </style>
 </head>
 <body>
   <p style="font-size:0.7em;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:2px;">Verification Report</p>
   <h1>{{ .Run.Feature }}</h1>
-  <p class="muted">Manual verification contract from recorded evidence. <span class="badge {{ if .Eval.Complete }}ok{{ else }}bad{{ end }}">{{ reportStatus .Eval }}</span></p>
 
-  <div class="summary-grid">
-    <div class="summary-card pass-card"><div class="big-number">{{ passedScenarioCount .Scenarios }}</div><div class="big-label">Passed</div></div>
-    <div class="summary-card fail-card"><div class="big-number">{{ failedScenarioCount .Scenarios }}</div><div class="big-label">Failed</div></div>
-    <div class="summary-card total-card"><div class="big-number">{{ totalScenarioCount .Scenarios }}</div><div class="big-label">Total</div></div>
-  </div>
+  <p class="summary-line">{{ totalScenarioCount .Scenarios }} scenarios: <span class="pass">{{ passedScenarioCount .Scenarios }} passed</span>{{ if failedScenarioCount .Scenarios }}, <span class="fail">{{ failedScenarioCount .Scenarios }} failed</span>{{ end }} — <span class="badge {{ if .Eval.Complete }}ok{{ else }}bad{{ end }}">{{ reportStatus .Eval }}</span></p>
 
-  <dl class="meta">
-    <div class="meta-item"><dt>Run ID</dt><dd><code>{{ .Run.ID }}</code></dd></div>
-    <div class="meta-item"><dt>Surface</dt><dd>{{ runSurfaceLabel .Run }}</dd></div>
-    <div class="meta-item"><dt>{{ runTargetLabel .Run }}</dt><dd><code>{{ runTargetValue .Run }}</code></dd></div>
-    {{ if runHasHTTPSummary .Run }}<div class="meta-item"><dt>HTTP Verification</dt><dd>{{ curlModeLabel .Run }}</dd></div>{{ end }}
-  </dl>
+  <ul class="meta-list">
+    <li>Run ID: <code>{{ .Run.ID }}</code></li>
+    <li>Surface: {{ runSurfaceLabel .Run }}</li>
+    <li>{{ runTargetLabel .Run }}: <code>{{ runTargetValue .Run }}</code></li>
+    {{ if runHasHTTPSummary .Run }}<li>HTTP verification: {{ curlModeLabel .Run }}</li>{{ end }}
+  </ul>
 
   {{ if .CurlCoverage }}
   <h3>HTTP Risk Coverage</h3>
@@ -308,36 +277,20 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
   </ul>
   {{ end }}
 
-  <div class="rollup-strip">
-    {{ range .Scenarios }}<span class="rollup-chip {{ scenarioTone .Eval }}">{{ .Eval.Scenario.Label }}</span>{{ end }}
-  </div>
-
   {{ if .EdgeCoverage }}
   <h2>Edge Case Coverage</h2>
-  <div class="coverage-grid">
+  <ul class="edge-list">
     {{ range .EdgeCoverage }}
-    <div class="coverage-card">
-      <h4>{{ .Category }}</h4>
-      {{ if eq .Status "na" }}<p class="muted">N/A — {{ .Reason }}</p>{{ else }}<p class="muted">Scenario coverage required</p><ul>{{ range .ScenarioLabels }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
-    </div>
+    <li><strong>{{ .Category }}</strong> — {{ if eq .Status "na" }}N/A ({{ .Reason }}){{ else }}Scenario coverage required<ul class="edge-scenarios">{{ range .ScenarioLabels }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}</li>
     {{ end }}
-  </div>
+  </ul>
   {{ end }}
 
   <h2>Scenarios</h2>
   {{ range $i, $s := .Scenarios }}
   {{ $eval := $s.Eval }}
   <details class="scenario" id="scenario-{{ $i }}"{{ if not (scenarioComplete $eval) }} open{{ end }}>
-    <summary>
-      <span class="scenario-label">
-        <span class="badge {{ scenarioTone $eval }}">{{ if scenarioComplete $eval }}PASS{{ else }}FAIL{{ end }}</span>
-        {{ $eval.Scenario.Label }}
-        <span class="kind">{{ title $eval.Scenario.Kind }}</span>
-      </span>
-      <span class="surface-indicators">
-        {{ range scenarioSurfaces $eval.Scenario }}{{ if surfaceOK $eval . }}<span class="surface-dot ok">{{ surfaceTitle . }} ✓</span>{{ else }}<span class="surface-dot bad">{{ surfaceTitle . }} ✗</span>{{ end }}{{ end }}
-      </span>
-    </summary>
+    <summary><span class="badge {{ scenarioTone $eval }}">{{ if scenarioComplete $eval }}PASS{{ else }}FAIL{{ end }}</span> {{ $eval.Scenario.Label }} <span class="muted">({{ title $eval.Scenario.Kind }})</span> — {{ range scenarioSurfaces $eval.Scenario }}{{ if surfaceOK $eval . }}<span class="pass">{{ surfaceTitle . }} ✓</span> {{ else }}<span class="fail">{{ surfaceTitle . }} ✗</span> {{ end }}{{ end }}</summary>
     <div class="scenario-body">
       <div class="scenario-id"><code>{{ $eval.Scenario.ID }}</code></div>
       {{ if and $eval.Scenario.CurlRequired $eval.Scenario.CurlEndpoints }}<p class="muted">curl: {{ range $ci, $ep := $eval.Scenario.CurlEndpoints }}{{ if $ci }}, {{ end }}<code>{{ $ep }}</code>{{ end }}</p>{{ end }}
