@@ -22,8 +22,8 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 	repoRoot := t.TempDir()
 	initIntegrationGitRepo(t, repoRoot, "https://github.com/nclandrei/proctor-integration-test")
 
-	terminalShotHappy := writeIntegrationFixture(t, repoRoot, "terminal-happy.png", "terminal-image-happy")
-	terminalShotFailure := writeIntegrationFixture(t, repoRoot, "terminal-failure.png", "terminal-image-failure")
+	terminalShotHappy := writeIntegrationScreenshot(t, repoRoot, "terminal-happy.png", "terminal-image-happy")
+	terminalShotFailure := writeIntegrationScreenshot(t, repoRoot, "terminal-failure.png", "terminal-image-failure")
 	happyTranscript := writeIntegrationFixture(t, repoRoot, "happy-pane.txt", "Usage:\n  demo help\nonboarding prompt")
 	failureTranscript := writeIntegrationFixture(t, repoRoot, "failure-pane.txt", "error: prompt not found")
 
@@ -135,6 +135,16 @@ func writeIntegrationFixture(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeIntegrationScreenshot(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	minSize := 10*1024 + 1
+	padded := content
+	for len(padded) < minSize {
+		padded += "\x00"
+	}
+	return writeIntegrationFixture(t, dir, name, padded)
 }
 
 func cliIntegrationNAEdgeCases() []string {

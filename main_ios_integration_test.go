@@ -61,7 +61,7 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
 		}
 
 		for i, scenarioID := range []string{"happy-path", "failure-path"} {
-			screenshotPath := writeCLIFile(t, repoRoot, fmt.Sprintf("library-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
+			screenshotPath := writeCLIScreenshot(t, repoRoot, fmt.Sprintf("library-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
 			if err := run([]string{
 				"record", "ios",
 				"--scenario", scenarioID,
@@ -161,4 +161,15 @@ func writeCLIFile(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// writeCLIScreenshot creates a file that exceeds the minimum screenshot size threshold.
+func writeCLIScreenshot(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	minSize := 10*1024 + 1
+	padded := content
+	for len(padded) < minSize {
+		padded += "\x00"
+	}
+	return writeCLIFile(t, dir, name, padded)
 }

@@ -51,7 +51,7 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
 		}
 
 		for i, scenarioID := range []string{"happy-path", "failure-path"} {
-			screenshotPath := writeCLIFile(t, repoRoot, fmt.Sprintf("window-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
+			screenshotPath := writeCLIScreenshot(t, repoRoot, fmt.Sprintf("window-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
 			if err := run([]string{
 				"record", "desktop",
 				"--scenario", scenarioID,
