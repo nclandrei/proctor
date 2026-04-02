@@ -9,9 +9,11 @@ The current implementation target is:
 - shared core
 - full web flow
 - full iOS simulator flow
+- full desktop app flow
 - full CLI and TUI flow
 - browser evidence
 - iOS simulator evidence
+- desktop app evidence
 - terminal screenshot + transcript evidence
 - risk-based `curl` evidence
 
@@ -21,6 +23,7 @@ In the current contract model, `curl` risk is decided per scenario. Endpoints ar
 - Keep runtime artifacts out of the repo. Proctor writes runs under `~/.proctor` by default.
 - Treat browser evidence as higher-trust than imported notes. Browser records need a session id, screenshots, a report artifact, and assertions.
 - Treat iOS evidence the same way. iOS records need a simulator session id, screenshots, a report artifact, and assertions.
+- Treat desktop evidence the same way. Desktop records need a session id, screenshots, a report artifact with app metadata, and assertions.
 - Treat CLI evidence as real terminal-session proof. CLI records need a session id, screenshots, a transcript artifact, the exercised command, and assertions.
 - Reports are derived output, not source-of-truth evidence.
 - Edge cases are first-class scenarios. Do not collapse them into generic notes.
