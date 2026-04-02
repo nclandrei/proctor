@@ -170,6 +170,30 @@ proctor start \
   --edge-case "any feature-specific risks=N/A: no extra feature-specific risks"
 ```
 
+For desktop app work, create a desktop contract instead:
+
+```bash
+proctor start \
+  --platform desktop \
+  --feature "Firefox bookmark manager" \
+  --app-name "Firefox" \
+  --app-bundle-id "org.mozilla.firefox" \
+  --curl skip \
+  --curl-skip-reason "UI-only desktop verification" \
+  --happy-path "Bookmark manager opens and lists saved bookmarks." \
+  --failure-path "Empty bookmark list shows a helpful prompt." \
+  --edge-case "validation and malformed input=N/A: no freeform input in this flow" \
+  --edge-case "empty or missing input=N/A: no required input in this flow" \
+  --edge-case "retry or double-submit=N/A: no repeated mutation in this flow" \
+  --edge-case "loading, latency, and race conditions=N/A: instant local operation" \
+  --edge-case "network or server failure=N/A: no backend dependency in this flow" \
+  --edge-case "auth and session state=N/A: no authentication required" \
+  --edge-case "window management, resize, and multi-monitor=Bookmark manager resizes cleanly" \
+  --edge-case "drag-drop, clipboard, and system integration=N/A: no drag-drop in this flow" \
+  --edge-case "keyboard shortcuts and accessibility=N/A: this pass is visual only" \
+  --edge-case "any feature-specific risks=N/A: no additional risks"
+```
+
 ### 2. Capture Real Evidence
 
 Proctor does not drive the browser for you. Use your own browser tooling to produce:
@@ -233,6 +257,7 @@ Known-good defaults:
 
 - Web: if `agent-browser` is available in the agent environment, it is a good default for driving the browser, capturing desktop and mobile screenshots, and producing the small `report.json` Proctor expects.
 - iOS: if `xcrun` is available, `xcrun simctl` is a good default for booting a simulator, taking screenshots, and inspecting logs before you write `ios-report.json`.
+- Desktop: if `peekaboo` is available, it uses ScreenCaptureKit for background window capture without stealing focus. Fallback: `screencapture -x -l <windowID>` plus `osascript` for window metadata before you write `desktop-report.json`.
 - CLI/TUI: a real terminal plus `tmux` is a good default for keeping the session alive, capturing the transcript, and taking a screenshot before `proctor record cli`.
 - HTTP: `curl -si` is a good default when a scenario carries direct HTTP risk.
 
@@ -301,7 +326,44 @@ proctor record ios \
 One simulator report can be reused for multiple scenarios if it genuinely
 proves each one.
 
-### 5. Attach Real CLI Evidence
+### 5. Attach Real Desktop Evidence
+
+Proctor does not launch the app for you. Use your own window capture tooling to
+screenshot and inspect the running app. Proctor only needs a screenshot plus a
+small `desktop-report.json` file:
+
+```json
+{
+  "app": {
+    "name": "Firefox",
+    "bundleId": "org.mozilla.firefox",
+    "state": "running",
+    "windowTitle": "Bookmark Manager"
+  },
+  "issues": {
+    "crashes": 0,
+    "fatalLogs": 0
+  }
+}
+```
+
+Then record that evidence against the scenario:
+
+```bash
+proctor record desktop \
+  --scenario happy-path \
+  --session firefox-desktop-1 \
+  --report /abs/path/desktop-report.json \
+  --screenshot window=/abs/path/window.png \
+  --assert 'app_name contains Firefox' \
+  --assert 'crashes = 0' \
+  --assert 'screenshot = true'
+```
+
+One desktop report can be reused for multiple scenarios if it genuinely
+proves each one.
+
+### 6. Attach Real CLI Evidence
 
 Then record the terminal evidence against the scenario:
 
@@ -318,7 +380,7 @@ proctor record cli \
   --assert 'screenshot = true'
 ```
 
-### 6. Attach HTTP Evidence When Required
+### 7. Attach HTTP Evidence When Required
 
 When a scenario requires `curl`, wrap the real HTTP command that hits one of the scenario's declared `--curl-endpoint` contracts:
 
@@ -334,7 +396,7 @@ proctor record curl \
     -d '{"email":"demo@example.com","password":"wrong"}'
 ```
 
-### 7. Check Coverage And Finish
+### 8. Check Coverage And Finish
 
 ```bash
 proctor status
@@ -370,6 +432,16 @@ For iOS evidence, Proctor expects:
 - at least one passing assertion
 
 The iOS report can be synthesized from real simulator-session output. It does
+not have to come from one specific helper.
+
+For desktop evidence, Proctor expects:
+
+- a desktop session id string
+- at least one window screenshot across the run
+- a `desktop-report.json` artifact with app metadata and issue counts
+- at least one passing assertion
+
+The desktop report can be synthesized from real window-capture output. It does
 not have to come from one specific helper.
 
 For CLI evidence, Proctor expects:
@@ -439,6 +511,24 @@ zero-issue assertions for:
 - crashes
 - fatal logs
 
+## Desktop Assertions
+
+Examples:
+
+- `app_name contains Firefox`
+- `bundle_id = org.mozilla.firefox`
+- `state = running`
+- `window_title contains Bookmarks`
+- `crashes = 0`
+- `fatal_logs = 0`
+- `screenshot = true`
+
+If you do not explicitly assert desktop health counts, Proctor adds implicit
+zero-issue assertions for:
+
+- crashes
+- fatal logs
+
 ## CLI Assertions
 
 Examples:
@@ -489,6 +579,18 @@ iOS:
 - accessibility, dynamic type, and keyboard behavior
 - any feature-specific risks
 
+Desktop:
+- validation and malformed input
+- empty or missing input
+- retry or double-submit
+- loading, latency, and race conditions
+- network or server failure
+- auth and session state
+- window management, resize, and multi-monitor
+- drag-drop, clipboard, and system integration
+- keyboard shortcuts and accessibility
+- any feature-specific risks
+
 CLI:
 - invalid or malformed input
 - missing required args, files, config, or env
@@ -516,6 +618,8 @@ CLI:
   Attaches terminal evidence to one scenario.
 - `proctor record ios`
   Attaches iOS simulator evidence to one scenario.
+- `proctor record desktop`
+  Attaches desktop app evidence to one scenario.
 - `proctor record curl`
   Wraps and records one real HTTP command for one scenario.
 - `proctor done`
@@ -530,6 +634,7 @@ proctor start --help
 proctor record browser --help
 proctor record cli --help
 proctor record ios --help
+proctor record desktop --help
 proctor record curl --help
 proctor done --help
 ```
@@ -561,8 +666,9 @@ Artifact files are append-only. Re-recording the same surface, scenario, and lab
 Current supported surfaces:
 
 - web browser evidence with desktop and mobile proof
-- CLI and TUI evidence with screenshots plus transcripts
 - iOS simulator evidence with screenshots plus simulator/app report metadata
+- desktop app evidence with screenshots plus app metadata and health checks
+- CLI and TUI evidence with screenshots plus transcripts
 - risk-based `curl` evidence when backend or protocol verification matters
 - `curl` risk is modeled per scenario, with scenario-level endpoint lists and scenario-level completion gates
 
