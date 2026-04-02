@@ -554,7 +554,7 @@ Important files:
 
 Artifact files are append-only. Re-recording the same surface, scenario, and label creates a new uniquely named file under `artifacts/` instead of overwriting an earlier recording.
 
-`report.html` is always rendered in dark mode, keeps its styles, screenshot previews, and embedded log transcripts self-contained, lets readers enlarge screenshots inline, and keeps logs collapsed until the reader expands them.
+`report.html` is a plain document with a light theme, keeps its styles, screenshot previews, and embedded log transcripts self-contained, lets readers enlarge screenshots inline, and keeps logs collapsed until the reader expands them.
 
 ## Current Scope
 

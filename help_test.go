@@ -98,7 +98,7 @@ func TestRootHelpMentionsAgentAgnosticWorkflow(t *testing.T) {
 		"proctor record cli --help",
 		"--curl scenario",
 		"proctor record ios --help",
-		"report.html is always rendered in dark mode",
+		"report.html is a plain document with a light theme",
 		"known-good local capture workflows based on tools found on PATH",
 	} {
 		if !strings.Contains(text, needle) {

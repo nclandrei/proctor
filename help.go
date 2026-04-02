@@ -422,7 +422,7 @@ Outputs:
   - raw artifacts live under ~/.proctor by default
   - contract.md is the human-readable contract
   - report.html is the shareable report
-  - report.html is always rendered in dark mode
+  - report.html is a plain document with a light theme
 ` + allPlatformRecommendationSection()
 }
 
@@ -1032,6 +1032,6 @@ Outputs:
   - report.html
 
 Both files live under ~/.proctor by default unless PROCTOR_HOME is set.
-The HTML report is always rendered in dark mode.
+The HTML report uses a light theme.
 `
 }
