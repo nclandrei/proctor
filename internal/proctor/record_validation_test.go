@@ -385,15 +385,11 @@ func TestCompleteRunRejectsDuplicateScreenshots(t *testing.T) {
 }
 
 // captureForTest appends a CaptureRecord for the given surface/scenario/session
-// with the specified SHA and returns the record. It bypasses the backend
-// dispatcher so tests can target arbitrary SHAs without re-writing files.
+// with the specified SHA and returns the record. Tests use this helper to
+// target arbitrary SHAs without writing real artifact files.
 func captureForTest(t *testing.T, store *Store, run Run, surface, scenarioID, sessionID, sha string) CaptureRecord {
 	t.Helper()
-	id, err := newCaptureID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	nonce, err := newCaptureNonce()
+	id, err := GenerateCaptureID()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +400,6 @@ func captureForTest(t *testing.T, store *Store, run Run, surface, scenarioID, se
 		SessionID:      sessionID,
 		Surface:        surface,
 		Label:          "main",
-		Nonce:          nonce,
 		ArtifactPath:   "/dev/null",
 		ArtifactSHA256: sha,
 		ArtifactBytes:  1,

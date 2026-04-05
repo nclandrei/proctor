@@ -612,11 +612,6 @@ CLI:
   Creates the verification contract.
 - `proctor status`
   Shows what still passes or fails.
-- `proctor capture browser|ios|desktop|cli`
-  Proctor takes the screenshot itself, logs the SHA and nonce to the run's
-  capture ledger, and prints a capture id. The agent then passes
-  `--capture-id cap_XXXXXX` to the matching `proctor record` call so proctor
-  can bind the submitted artifact back to the ledger entry it produced.
 - `proctor record browser`
   Attaches browser evidence to one scenario.
 - `proctor record cli`
@@ -636,10 +631,6 @@ Use subcommand help for exact flags:
 
 ```bash
 proctor start --help
-proctor capture browser --help
-proctor capture ios --help
-proctor capture desktop --help
-proctor capture cli --help
 proctor record browser --help
 proctor record cli --help
 proctor record ios --help
