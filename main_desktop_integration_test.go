@@ -53,6 +53,14 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
 		for i, scenarioID := range []string{"happy-path", "failure-path"} {
 			screenshotPath := writeCLIScreenshot(t, repoRoot, fmt.Sprintf("window-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
 			if err := run([]string{
+				"note",
+				"--scenario", scenarioID,
+				"--session", "firefox-desktop-1",
+				"--notes", "about to verify Firefox bookmark manager window for scenario " + scenarioID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := run([]string{
 				"record", "desktop",
 				"--scenario", scenarioID,
 				"--session", "firefox-desktop-1",

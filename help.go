@@ -33,6 +33,10 @@ func commandHelp(args []string) (string, bool, error) {
 		if wantsHelp(args[1:]) {
 			return statusHelpText(), true, nil
 		}
+	case "note":
+		if wantsHelp(args[1:]) {
+			return noteHelpText(), true, nil
+		}
 	case "verify":
 		if wantsHelp(args[1:]) {
 			return verifyHelpText(), true, nil
@@ -89,6 +93,8 @@ func topicHelp(args []string) (string, error) {
 		return startHelpText(), nil
 	case "status":
 		return statusHelpText(), nil
+	case "note":
+		return noteHelpText(), nil
 	case "verify":
 		return verifyHelpText(), nil
 	case "done":
@@ -142,11 +148,13 @@ Proctor is the verifier. It is not the feature under test.
 Mandatory next step for the agent after reading this help:
   1. inspect the current repo diff and identify the feature to verify
   2. run proctor start with the right platform for that feature
-  3. perform the actual manual checks
-  4. attach evidence with the relevant proctor record command(s)
-  5. re-read each recorded screenshot and call proctor verify with an
+  3. file a pre-test note for each scenario with proctor note --scenario X
+     --session Y --notes "what I am about to test" BEFORE recording
+  4. perform the actual manual checks
+  5. attach evidence with the relevant proctor record command(s)
+  6. re-read each recorded screenshot and call proctor verify with an
      observation describing what is actually visible in the image
-  6. finish with proctor done
+  7. finish with proctor done
 
 Proctor does three things:
   1. creates a verification contract for the feature being tested
@@ -185,6 +193,12 @@ Typical web workflow:
     --edge-case "mobile or responsive behavior=Login form stays usable at mobile width" \
     --edge-case "accessibility and keyboard behavior=Enter submits from the password field; tab order stays correct" \
     --edge-case "any feature-specific risks=N/A: no extra feature-specific risks for this flow"
+
+  # Before recording, file a pre-test note committing to what you will check:
+  proctor note \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --notes "about to verify the dashboard loads after valid login and shows the user email"
 
   # Produce real browser artifacts with your browser tool of choice:
   #   desktop.png
@@ -425,6 +439,7 @@ What counts as CLI evidence:
 
 Use subcommand help for exact flags:
   proctor start --help
+  proctor note --help
   proctor record browser --help
   proctor record cli --help
   proctor record ios --help
@@ -662,6 +677,9 @@ Important:
   - curl evidence must produce a real HTTP response and match one declared curl endpoint for that scenario
   - curl requirements are decided per scenario, not by endpoint alone
   - only recorded evidence counts toward proctor done
+  - every record call BLOCKS until a pre-test note has been filed for the
+    (scenario, session) pair with proctor note --scenario X --session Y
+    --notes "..." (minimum 20 chars)
   - every recorded screenshot evidence enters pending-verification and must
     be closed with proctor verify --scenario X --session Y --notes "..." (minimum 20 chars)
     before proctor done can pass
@@ -1003,6 +1021,7 @@ Usage:
 
 This prints:
   - every scenario in the contract
+  - whether a pre-test note has been filed for each scenario
   - whether browser evidence passes or fails
   - whether cli evidence passes or fails
   - whether ios evidence passes or fails
@@ -1013,9 +1032,55 @@ This prints:
 
 Use this after each record step so the agent can see what is still missing.
 Scenarios with pending-verification evidence appear here until the agent
-writes observation notes with proctor verify.
+writes observation notes with proctor verify. Scenarios that are missing a
+pre-test note also appear here with a reminder to run proctor note first.
 When the run is incomplete, proctor status also prints platform-specific local
 capture recommendations based on tools found on PATH.
+`
+}
+
+func noteHelpText() string {
+	return `proctor note - file a pre-test note BEFORE recording evidence
+
+Usage:
+  proctor note \
+    --scenario ID \
+    --session SESSION \
+    --notes "what I am about to test"
+
+Required:
+  --scenario ID      Scenario id from contract.md or proctor status
+  --session SESSION  Stable session id you will reuse for proctor record
+  --notes TEXT       Free-text statement of intent (minimum 20 characters)
+
+Pre-notes are the forcing function. Before any proctor record browser/ios/
+desktop/cli/curl call, proctor expects the agent to commit to specifics
+about the flow they are about to verify, in the same session string they
+will use when they record the screenshot. The contract describes the
+scenario in the abstract; the pre-note is the agent's statement of
+"right now, in this session, I am about to test X in concrete terms."
+
+proctor record refuses to accept evidence when no pre-note exists for the
+(scenario, session) pair. proctor done refuses to pass when any scenario
+has evidence but no pre-note attached. Both gates apply to every surface
+including curl.
+
+Multiple pre-notes per (scenario, session) are allowed. The first note
+satisfies the record gate; additional notes create an audit trail for
+cases where the agent extends what they intend to check mid-session.
+
+Pre-notes should be specific and falsifiable, not generic:
+
+  bad:  "about to test login"
+  bad:  "will verify the screen"
+  good: "about to submit the login form with a valid email and the
+         correct password and confirm we land on /dashboard"
+
+Example:
+  proctor note \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --notes "about to log in with demo@example.com and expect redirect to /dashboard with a Sign out link"
 `
 }
 
@@ -1068,6 +1133,8 @@ Usage:
   proctor done
 
 Passes only when:
+  - every scenario with recorded evidence has at least one pre-test note filed
+    before that evidence via proctor note
   - every required scenario has valid evidence
   - browser scenarios have trusted browser evidence
   - cli scenarios have trusted terminal evidence
@@ -1080,11 +1147,13 @@ Passes only when:
   - no duplicate screenshots are reused across different scenarios
   - the run is not expired (max 2 hours from start)
 
-Recording a screenshot is not enough on its own. After each proctor record
-call, run proctor verify --scenario ID --session SESSION --notes "..." with
-a short written observation of what the screenshot actually shows. proctor
-done will refuse to pass while any scenario still has pending-verification
-evidence.
+Recording a screenshot is not enough on its own. Before each proctor record
+call, run proctor note --scenario ID --session SESSION --notes "..." to
+commit to what you are about to test. After each proctor record call, run
+proctor verify --scenario ID --session SESSION --notes "..." with a short
+written observation of what the screenshot actually shows. proctor done
+will refuse to pass while any scenario has evidence without a pre-note, or
+while any scenario still has pending-verification evidence.
 
 If the contract is incomplete, proctor done exits non-zero and prints what is
 still missing. This is the command the agent should treat as the real

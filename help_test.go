@@ -302,6 +302,98 @@ func TestStartHelpMentionsDesktopPlatform(t *testing.T) {
 	}
 }
 
+func TestNoteHelpDescribesForcingFunction(t *testing.T) {
+	text, ok, err := commandHelp([]string{"note", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"proctor note - file a pre-test note BEFORE recording evidence",
+		"--scenario ID",
+		"--session SESSION",
+		"--notes TEXT",
+		"forcing function",
+		"proctor record refuses to accept evidence when no pre-note exists",
+		"including curl",
+		"Multiple pre-notes per (scenario, session) are allowed",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected note help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
+func TestHelpTopicSupportsNote(t *testing.T) {
+	text, err := topicHelp([]string{"note"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "proctor note - file a pre-test note BEFORE recording evidence") {
+		t.Fatalf("expected note topic help, got:\n%s", text)
+	}
+}
+
+func TestRootHelpMentionsNoteStep(t *testing.T) {
+	text, ok, err := commandHelp([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"proctor note",
+		"BEFORE recording",
+		"proctor note --help",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected root help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
+func TestRecordHelpMentionsPreNoteGate(t *testing.T) {
+	text, ok, err := commandHelp([]string{"record", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "every record call BLOCKS until a pre-test note has been filed") {
+		t.Fatalf("expected record help to describe the pre-note gate, got:\n%s", text)
+	}
+}
+
+func TestDoneHelpMentionsPreNoteGate(t *testing.T) {
+	text, ok, err := commandHelp([]string{"done", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "at least one pre-test note filed") {
+		t.Fatalf("expected done help to describe the pre-note gate, got:\n%s", text)
+	}
+}
+
+func TestStatusHelpMentionsPreNoteVisibility(t *testing.T) {
+	text, ok, err := commandHelp([]string{"status", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	if !strings.Contains(text, "whether a pre-test note has been filed for each scenario") {
+		t.Fatalf("expected status help to surface pre-note visibility, got:\n%s", text)
+	}
+}
+
 func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 	text, ok, err := commandHelp([]string{"start", "--help"})
 	if err != nil {

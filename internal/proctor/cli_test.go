@@ -64,6 +64,8 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 	happyExitCode := 0
 	failureExitCode := 2
 
+	filePreNote(t, store, run, "happy-path", "cli-session-1")
+	filePreNote(t, store, run, "failure-path", "cli-session-1")
 	if err := RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "cli-session-1",
@@ -149,6 +151,8 @@ func TestRecordCLIRequiresTranscriptAndScreenshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePreNote(t, store, run, "happy-path", "cli-session-1")
+
 	err = RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "cli-session-1",
@@ -189,6 +193,7 @@ func TestCLIAssertionFailureBlocksScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePreNote(t, store, run, "happy-path", "cli-session-1")
 	exitCode := 0
 	// Record with an intentionally failing assertion; error expected.
 	_ = RecordCLI(store, run, CLIRecordOptions{

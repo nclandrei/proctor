@@ -83,6 +83,7 @@ func TestCaptureE2E_LedgerAutoPopulated(t *testing.T) {
 	mobile := e2eWriteScreenshot(t, run.RepoRoot, "mobile.png", "auto-mobile")
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
+	filePreNote(t, store, run, "happy-path", "browser-e2e-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-e2e-1",
@@ -148,6 +149,7 @@ func TestCaptureE2E_TamperedArtifactDetectedByLedger(t *testing.T) {
 	desktop := e2eWriteScreenshot(t, run.RepoRoot, "desktop.png", "tamper-desktop")
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
+	filePreNote(t, store, run, "happy-path", "tamper-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "tamper-1",
@@ -209,6 +211,7 @@ func TestCaptureE2E_CrossScenarioReuseRejected(t *testing.T) {
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
 	// First record binds the artifact to scenario happy-path.
+	filePreNote(t, store, run, "happy-path", "reuse-sess")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "reuse-sess",
@@ -222,6 +225,7 @@ func TestCaptureE2E_CrossScenarioReuseRejected(t *testing.T) {
 	// Second record attempts to reuse the same file (identical content,
 	// identical SHA) for a different scenario. detectDuplicateScreenshots
 	// should reject it.
+	filePreNote(t, store, run, "failure-path", "reuse-sess")
 	err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "failure-path",
 		SessionID:      "reuse-sess",
@@ -259,6 +263,10 @@ func TestCaptureE2E_ConcurrentRecordsLedgerConsistent(t *testing.T) {
 	scenarios := []string{"happy-path", "failure-path"}
 	const perScenario = 1
 	total := len(scenarios) * perScenario
+
+	for _, scen := range scenarios {
+		filePreNote(t, store, run, scen, fmt.Sprintf("conc-sess-%s", scen))
+	}
 
 	var wg sync.WaitGroup
 	errs := make([]error, total)
@@ -331,6 +339,7 @@ func TestCaptureE2E_LedgerJSONLFormat(t *testing.T) {
 	desktop := e2eWriteScreenshot(t, run.RepoRoot, "desktop.png", "format-desktop")
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
+	filePreNote(t, store, run, "happy-path", "fmt-sess")
 	before := time.Now().UTC().Add(-time.Second)
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",

@@ -41,6 +41,19 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 	runProctorCLI(t, proctorBinary, repoRoot, proctorHome, startArgs...)
 
 	runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
+		"note",
+		"--scenario", "happy-path",
+		"--session", "integration-cli-1",
+		"--notes", "about to verify the demo help command prints usage and the onboarding prompt banner",
+	)
+	runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
+		"note",
+		"--scenario", "failure-path",
+		"--session", "integration-cli-1",
+		"--notes", "about to verify the demo help missing subcommand exits non-zero and prints a clear error",
+	)
+
+	runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
 		"record", "cli",
 		"--scenario", "happy-path",
 		"--session", "integration-cli-1",

@@ -96,6 +96,18 @@ func (fx *verifyFixture) startCLIRun(t *testing.T) {
 	runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome, startArgs...)
 }
 
+// filePreNoteCLI files a pre-test note for the given scenario+session so the
+// subsequent record call is accepted.
+func (fx *verifyFixture) filePreNoteCLI(t *testing.T, scenarioID, sessionID string) {
+	t.Helper()
+	runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome,
+		"note",
+		"--scenario", scenarioID,
+		"--session", sessionID,
+		"--notes", "about to verify the "+scenarioID+" cli scenario with the fixture screenshot and transcript",
+	)
+}
+
 // recordCLIScenario records a CLI scenario using the fixture's pre-written
 // screenshot+transcript pair. The scenario must already exist in the current
 // run (i.e. "happy-path" or "failure-path").
@@ -113,6 +125,7 @@ func (fx *verifyFixture) recordCLIScenario(t *testing.T, scenarioID, sessionID s
 		exitCode = "2"
 		assertion = "output contains prompt not found"
 	}
+	fx.filePreNoteCLI(t, scenarioID, sessionID)
 	runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome,
 		"record", "cli",
 		"--scenario", scenarioID,
@@ -423,6 +436,181 @@ func TestVerifyFlow_EvidenceJSONLContainsNotesAndStatus(t *testing.T) {
 	}
 	if latest.VerifiedAt == nil || latest.VerifiedAt.IsZero() {
 		t.Fatalf("expected latest entry to carry a non-zero VerifiedAt timestamp")
+	}
+}
+
+// recordCLIScenarioWithoutPreNote is like recordCLIScenario but skips the
+// pre-note step. Used by tests that exercise the record gate.
+func (fx *verifyFixture) recordCLIScenarioWithoutPreNote(t *testing.T, scenarioID, sessionID string) (string, error) {
+	t.Helper()
+	screenshot := fx.happyShot
+	transcript := fx.happyScript
+	command := "demo help"
+	exitCode := "0"
+	assertion := "output contains onboarding"
+	if scenarioID == "failure-path" {
+		screenshot = fx.failureShot
+		transcript = fx.failureScript
+		command = "demo help missing"
+		exitCode = "2"
+		assertion = "output contains prompt not found"
+	}
+	return runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
+		"record", "cli",
+		"--scenario", scenarioID,
+		"--session", sessionID,
+		"--command", command,
+		"--transcript", transcript,
+		"--screenshot", "terminal="+screenshot,
+		"--exit-code", exitCode,
+		"--assert", assertion,
+		"--assert", "exit_code = "+exitCode,
+		"--assert", "screenshot = true",
+	)
+}
+
+func TestNoteFlow_RecordBlocksWithoutPreNote(t *testing.T) {
+	fx := newVerifyFixture(t)
+	fx.startCLIRun(t)
+
+	output, _ := fx.recordCLIScenarioWithoutPreNote(t, "happy-path", "no-prenote-session")
+	if !strings.Contains(output, "file a pre-test note first") {
+		t.Fatalf("expected record to surface pre-note gate error, got:\n%s", output)
+	}
+	if !strings.Contains(output, "proctor note --scenario happy-path --session no-prenote-session") {
+		t.Fatalf("expected record to include concrete proctor note hint, got:\n%s", output)
+	}
+}
+
+func TestNoteFlow_DoneBlocksWithoutPreNote(t *testing.T) {
+	fx := newVerifyFixture(t)
+	fx.startCLIRun(t)
+
+	// File + record a pre-note for happy-path only. Then force-inject
+	// failure-path evidence via the CLI by filing its pre-note + recording,
+	// verifying both, then deleting the failure-path pre-notes from the
+	// ledger. This exercises the done gate directly.
+	fx.recordAllCLIScenarios(t, "partial-prenote-session")
+	verifyAllScenariosCLI(t, fx.binary, fx.repoRoot, fx.proctorHome, "partial-prenote-session", []string{"happy-path", "failure-path"})
+
+	// Truncate notes.jsonl to 0 bytes so the done gate sees evidence with
+	// no pre-note. This simulates a legacy run without pre-notes.
+	runsRoot := filepath.Join(fx.proctorHome, "runs")
+	var notesPath string
+	err := filepath.Walk(runsRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && filepath.Base(path) == "notes.jsonl" {
+			notesPath = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk runs dir: %v", err)
+	}
+	if notesPath == "" {
+		t.Fatalf("no notes.jsonl found under %s", runsRoot)
+	}
+	if err := os.WriteFile(notesPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("truncate notes.jsonl: %v", err)
+	}
+
+	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome, "done")
+	if !strings.Contains(output, "FAIL") {
+		t.Fatalf("expected done output to include FAIL, got:\n%s", output)
+	}
+	if !strings.Contains(output, "has evidence but no pre-test note recorded") {
+		t.Fatalf("expected done output to mention missing pre-note, got:\n%s", output)
+	}
+}
+
+func TestNoteFlow_EmptyPreNoteRejected(t *testing.T) {
+	fx := newVerifyFixture(t)
+	fx.startCLIRun(t)
+
+	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
+		"note",
+		"--scenario", "happy-path",
+		"--session", "empty-notes-session",
+		"--notes", "",
+	)
+	if !strings.Contains(output, "missing required flags") && !strings.Contains(output, "--notes is required") {
+		t.Fatalf("expected empty notes to be rejected, got:\n%s", output)
+	}
+}
+
+func TestNoteFlow_ShortPreNoteRejected(t *testing.T) {
+	fx := newVerifyFixture(t)
+	fx.startCLIRun(t)
+
+	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
+		"note",
+		"--scenario", "happy-path",
+		"--session", "short-notes-session",
+		"--notes", "too short",
+	)
+	if !strings.Contains(output, "must describe") {
+		t.Fatalf("expected short notes to surface length error, got:\n%s", output)
+	}
+}
+
+func TestNoteFlow_MultiplePreNotesAppendToLog(t *testing.T) {
+	fx := newVerifyFixture(t)
+	fx.startCLIRun(t)
+
+	for i := 0; i < 3; i++ {
+		runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome,
+			"note",
+			"--scenario", "happy-path",
+			"--session", "audit-session",
+			"--notes", "about to verify the cli happy path with the fixture transcript and screenshot",
+		)
+	}
+
+	runsRoot := filepath.Join(fx.proctorHome, "runs")
+	var notesPath string
+	err := filepath.Walk(runsRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && filepath.Base(path) == "notes.jsonl" {
+			notesPath = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk runs dir: %v", err)
+	}
+	if notesPath == "" {
+		t.Fatalf("no notes.jsonl found under %s", runsRoot)
+	}
+	data, err := os.ReadFile(notesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 pre-notes appended to log, got %d:\n%s", len(lines), string(data))
+	}
+	seen := map[string]bool{}
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var note proctor.PreNote
+		if err := json.Unmarshal([]byte(line), &note); err != nil {
+			t.Fatalf("parse pre-note line %q: %v", line, err)
+		}
+		if !strings.HasPrefix(note.ID, "note_") {
+			t.Fatalf("expected pre-note id to start with note_, got %q", note.ID)
+		}
+		if seen[note.ID] {
+			t.Fatalf("duplicate pre-note id %s", note.ID)
+		}
+		seen[note.ID] = true
 	}
 }
 

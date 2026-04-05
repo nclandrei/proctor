@@ -226,6 +226,9 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if opts.SessionID == "" {
 		return fmt.Errorf("browser evidence requires --session")
 	}
+	if err := requirePreNote(store, run, scenario.ID, opts.SessionID); err != nil {
+		return err
+	}
 	if opts.ReportPath == "" {
 		return fmt.Errorf("browser evidence requires --report")
 	}
@@ -327,6 +330,9 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	if opts.SessionID == "" {
 		return fmt.Errorf("ios evidence requires --session")
 	}
+	if err := requirePreNote(store, run, scenario.ID, opts.SessionID); err != nil {
+		return err
+	}
 	if opts.ReportPath == "" {
 		return fmt.Errorf("ios evidence requires --report")
 	}
@@ -419,6 +425,9 @@ func RecordCurl(store *Store, run Run, opts CurlRecordOptions) error {
 	if !ok {
 		return fmt.Errorf("unknown scenario: %s", opts.ScenarioID)
 	}
+	if err := requirePreNoteForScenario(store, run, scenario.ID); err != nil {
+		return err
+	}
 	if len(opts.Command) == 0 {
 		return fmt.Errorf("curl evidence requires a command after --")
 	}
@@ -499,6 +508,9 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	}
 	if strings.TrimSpace(opts.SessionID) == "" {
 		return fmt.Errorf("cli evidence requires --session")
+	}
+	if err := requirePreNote(store, run, scenario.ID, strings.TrimSpace(opts.SessionID)); err != nil {
+		return err
 	}
 	if strings.TrimSpace(opts.Command) == "" {
 		return fmt.Errorf("cli evidence requires --command")
@@ -616,6 +628,9 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	if opts.SessionID == "" {
 		return fmt.Errorf("desktop evidence requires --session")
 	}
+	if err := requirePreNote(store, run, scenario.ID, opts.SessionID); err != nil {
+		return err
+	}
 	if opts.ReportPath == "" {
 		return fmt.Errorf("desktop evidence requires --report")
 	}
@@ -707,6 +722,14 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	if err != nil {
 		return Evaluation{}, err
 	}
+	preNotes, err := store.LoadPreNotes(run)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	preNoteScenarios := map[string]bool{}
+	for _, note := range preNotes {
+		preNoteScenarios[note.Scenario] = true
+	}
 
 	eval := Evaluation{Complete: true}
 
@@ -735,15 +758,33 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 		iosEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceIOS)
 		curlEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCurl)
 		cliEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceCLI)
+		desktopEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceDesktop)
+
+		hasAnyEvidence := len(browserEvidence) > 0 || len(iosEvidence) > 0 ||
+			len(curlEvidence) > 0 || len(cliEvidence) > 0 || len(desktopEvidence) > 0
+		hasPreNote := preNoteScenarios[scenario.ID]
+		preNoteGap := hasAnyEvidence && !hasPreNote
+		preNoteIssue := fmt.Sprintf(
+			"scenario %s has evidence but no pre-test note recorded; run proctor note --scenario %s --session <session> --notes '...'",
+			scenario.ID, scenario.ID,
+		)
 
 		if scenario.BrowserRequired {
 			scenarioEval.BrowserOK, scenarioEval.BrowserIssues = validateBrowserEvidence(store, run, scenario, browserEvidence)
+			if preNoteGap {
+				scenarioEval.BrowserOK = false
+				scenarioEval.BrowserIssues = append(scenarioEval.BrowserIssues, preNoteIssue)
+			}
 			if !scenarioEval.BrowserOK {
 				eval.Complete = false
 			}
 		}
 		if scenario.IOSRequired {
 			scenarioEval.IOSOK, scenarioEval.IOSIssues = validateIOSEvidence(store, run, iosEvidence)
+			if preNoteGap {
+				scenarioEval.IOSOK = false
+				scenarioEval.IOSIssues = append(scenarioEval.IOSIssues, preNoteIssue)
+			}
 			if !scenarioEval.IOSOK {
 				eval.Complete = false
 			}
@@ -751,19 +792,30 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 
 		if scenario.CurlRequired {
 			scenarioEval.CurlOK, scenarioEval.CurlIssues = validateCurlEvidence(store, run, scenario, curlEvidence)
+			if preNoteGap {
+				scenarioEval.CurlOK = false
+				scenarioEval.CurlIssues = append(scenarioEval.CurlIssues, preNoteIssue)
+			}
 			if !scenarioEval.CurlOK {
 				eval.Complete = false
 			}
 		}
 		if scenario.CLIRequired {
 			scenarioEval.CLIOK, scenarioEval.CLIIssues = validateCLIEvidence(store, run, cliEvidence)
+			if preNoteGap {
+				scenarioEval.CLIOK = false
+				scenarioEval.CLIIssues = append(scenarioEval.CLIIssues, preNoteIssue)
+			}
 			if !scenarioEval.CLIOK {
 				eval.Complete = false
 			}
 		}
 		if scenario.DesktopRequired {
-			desktopEvidence := selectEvidenceForScenario(evidence, scenario.ID, SurfaceDesktop)
 			scenarioEval.DesktopOK, scenarioEval.DesktopIssues = validateDesktopEvidence(store, run, desktopEvidence)
+			if preNoteGap {
+				scenarioEval.DesktopOK = false
+				scenarioEval.DesktopIssues = append(scenarioEval.DesktopIssues, preNoteIssue)
+			}
 			if !scenarioEval.DesktopOK {
 				eval.Complete = false
 			}
@@ -1006,6 +1058,93 @@ func VerifyEvidence(store *Store, run Run, scenarioID, sessionID, notes string) 
 		return err
 	}
 	return writeReports(store, run)
+}
+
+// FilePreNote records a pre-test note for the given scenario and session.
+// The agent is required to commit to what they intend to test BEFORE calling
+// any record command, creating a psychological forcing function that is
+// distinct from reading the static contract. Multiple pre-notes per
+// (scenario, session) are allowed; subsequent notes form an audit trail.
+func FilePreNote(store *Store, run Run, scenarioID, sessionID, notes string) (PreNote, error) {
+	scenarioID = strings.TrimSpace(scenarioID)
+	sessionID = strings.TrimSpace(sessionID)
+	trimmedNotes := strings.TrimSpace(notes)
+	if scenarioID == "" {
+		return PreNote{}, fmt.Errorf("pre-test note: --scenario is required")
+	}
+	if sessionID == "" {
+		return PreNote{}, fmt.Errorf("pre-test note: --session is required")
+	}
+	if trimmedNotes == "" {
+		return PreNote{}, fmt.Errorf("pre-test note: --notes is required")
+	}
+	if len(trimmedNotes) < MinObservationNotesLength {
+		return PreNote{}, fmt.Errorf(
+			"pre-test notes must describe what you are about to test (got %d chars, minimum %d)",
+			len(trimmedNotes), MinObservationNotesLength,
+		)
+	}
+	if _, ok := findScenario(run, scenarioID); !ok {
+		return PreNote{}, fmt.Errorf("unknown scenario: %s", scenarioID)
+	}
+	id, err := GeneratePreNoteID()
+	if err != nil {
+		return PreNote{}, fmt.Errorf("generate pre-note id: %w", err)
+	}
+	note := PreNote{
+		ID:        id,
+		RunID:     run.ID,
+		Scenario:  scenarioID,
+		Session:   sessionID,
+		Notes:     trimmedNotes,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.AppendPreNote(run, note); err != nil {
+		return PreNote{}, err
+	}
+	return note, nil
+}
+
+// requirePreNote is the gate used by every session-bound record call: it
+// refuses evidence for a (scenario, session) pair that does not yet have at
+// least one filed pre-test note.
+func requirePreNote(store *Store, run Run, scenarioID, sessionID string) error {
+	scenarioID = strings.TrimSpace(scenarioID)
+	sessionID = strings.TrimSpace(sessionID)
+	if scenarioID == "" || sessionID == "" {
+		return nil
+	}
+	has, err := store.HasPreNote(run, scenarioID, sessionID)
+	if err != nil {
+		return fmt.Errorf("check pre-note: %w", err)
+	}
+	if has {
+		return nil
+	}
+	return fmt.Errorf(
+		"file a pre-test note first: proctor note --scenario %s --session %s --notes '...'",
+		scenarioID, sessionID,
+	)
+}
+
+// requirePreNoteForScenario is the scenario-only gate used by RecordCurl,
+// which has no session id. Any pre-note for the scenario satisfies it.
+func requirePreNoteForScenario(store *Store, run Run, scenarioID string) error {
+	scenarioID = strings.TrimSpace(scenarioID)
+	if scenarioID == "" {
+		return nil
+	}
+	has, err := store.NotesLedger(run).HasForScenario(scenarioID)
+	if err != nil {
+		return fmt.Errorf("check pre-note: %w", err)
+	}
+	if has {
+		return nil
+	}
+	return fmt.Errorf(
+		"file a pre-test note first: proctor note --scenario %s --session <session> --notes '...'",
+		scenarioID,
+	)
 }
 
 func WriteReports(store *Store, run Run) error {

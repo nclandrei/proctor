@@ -100,6 +100,7 @@ func TestStaleScreenshotIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	err = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -133,6 +134,8 @@ func TestCrossScenarioDuplicateScreenshotIsRejected(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	sharedShot := writeScreenshotFixture(t, repo, "shared.png", "identical-screenshot-content")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
+	filePreNote(t, store, run, "failure-path", "browser-1")
 	// First recording succeeds.
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -179,6 +182,7 @@ func TestSameScenarioReRecordingAllowed(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	shot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image-content")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	// First recording.
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -224,6 +228,7 @@ func TestFreshScreenshotIsAccepted(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	freshShot := writeScreenshotFixture(t, repo, "fresh.png", "fresh-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	err = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -258,6 +263,7 @@ func TestReportEmbedsScreenshotPreviews(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -310,6 +316,7 @@ func TestReportDisplaysEvidenceTimestamps(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -355,6 +362,7 @@ func TestReportEmbedsTranscriptAsCollapsedLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePreNote(t, store, run, "happy-path", "curl-1")
 	if err := RecordCurl(store, run, CurlRecordOptions{
 		ScenarioID: "happy-path",
 		Command: []string{
@@ -632,6 +640,7 @@ func TestEvaluateRequiresCurlForScenarioModeEdgeCases(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePreNotesForAll(t, store, run, "browser-1", testPreNoteText)
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	for i, scenario := range run.Scenarios {
 		desktopShot := writeScreenshotFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenario.ID))
@@ -751,6 +760,7 @@ func TestRecordBrowserEvaluatesStructuredAssertions(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -802,6 +812,7 @@ func TestBrowserWarningsAreRecordedButNotImplicitlyBlocking(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -858,6 +869,7 @@ func TestBrowserWarningsCanBeMadeBlockingWithExplicitAssertion(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReportWithWarnings("http://127.0.0.1:3000/dashboard", 0, 2, 0, 0, 0))
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	// Record with an intentionally failing assertion; error expected.
 	_ = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -925,6 +937,7 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 		return writeScreenshotFixture(t, repo, fmt.Sprintf("%s-%d.png", label, scenarioCounter), fmt.Sprintf("%s-image-%d", label, scenarioCounter))
 	}
 
+	filePreNotesForAll(t, store, run, "browser-1", testPreNoteText)
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -1050,6 +1063,7 @@ func TestDoneFailsWhenBrowserAssertionFails(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	// Record with an intentionally failing assertion; error expected.
 	_ = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -1090,6 +1104,7 @@ func TestEvaluateRequiresGlobalMobileScreenshotCoverage(t *testing.T) {
 
 	report := writeFixture(t, repo, "desktop-only-report.json", sampleDesktopOnlyBrowserReport("http://127.0.0.1:3000/dashboard"))
 
+	filePreNotesForAll(t, store, run, "browser-1", testPreNoteText)
 	for i, scenarioID := range []string{"happy-path", "failure-path"} {
 		desktopShot := writeScreenshotFixture(t, repo, fmt.Sprintf("desktop-%d.png", i), fmt.Sprintf("desktop-image-%s", scenarioID))
 		if err := RecordBrowser(store, run, BrowserRecordOptions{
@@ -1145,6 +1160,7 @@ func TestBrowserImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	// Record with implicit health checks that will fail; error expected.
 	_ = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
@@ -1204,6 +1220,7 @@ func TestExplicitDesktopIssueAssertionOverridesImplicitZeroCheck(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "failure-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "failure-path",
 		SessionID:  "browser-1",
@@ -1246,6 +1263,7 @@ func TestCurlEvaluationIncludesFailedAssertionDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePreNote(t, store, run, "happy-path", "curl-1")
 	// Record with an intentionally failing assertion; error expected.
 	_ = RecordCurl(store, run, CurlRecordOptions{
 		ScenarioID: "happy-path",
@@ -1296,6 +1314,8 @@ func TestEvaluateRequiresRealHTTPResponseAndMatchingCurlEndpointContract(t *test
 	}))
 	defer server.Close()
 
+	filePreNote(t, store, run, "happy-path", "curl-1")
+	filePreNote(t, store, run, "failure-path", "curl-1")
 	if err := RecordCurl(store, run, CurlRecordOptions{
 		ScenarioID: "happy-path",
 		Command:    curlHelperCommand("http", "GET", server.URL+"/api/session"),
@@ -1370,6 +1390,7 @@ func TestMobileScreenshotRequiresMobileReportResults(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -1439,6 +1460,7 @@ func TestBrowserReportRequiresDesktopFinalURL(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "browser-1",
@@ -1487,6 +1509,7 @@ func TestMobileResponsiveScenarioRequiresMobileScreenshot(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 
+	filePreNote(t, store, run, "mobile-or-responsive-behavior-layout-remains-usable-on-mobile", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "mobile-or-responsive-behavior-layout-remains-usable-on-mobile",
 		SessionID:  "browser-1",
@@ -1539,6 +1562,7 @@ func TestMobileResponsiveScenarioPassesWithMobileProof(t *testing.T) {
 	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 
+	filePreNote(t, store, run, "mobile-or-responsive-behavior-layout-remains-usable-on-mobile", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "mobile-or-responsive-behavior-layout-remains-usable-on-mobile",
 		SessionID:  "browser-1",
@@ -1798,6 +1822,38 @@ func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
 	}
 	return writeFixture(t, dir, name, padded)
 }
+
+// filePreNotesForAll files a pre-test note for every scenario declared on
+// the run, using the same session id for each one. Tests need this because
+// record calls now refuse evidence without a pre-note; the default test
+// fixture keeps each test focused on the behaviour under test rather than
+// the pre-note gate itself. When a test uses multiple sessions per scenario
+// it should file additional pre-notes with FilePreNote directly.
+func filePreNotesForAll(t *testing.T, store *Store, run Run, session, notes string) {
+	t.Helper()
+	if len(notes) < MinObservationNotesLength {
+		t.Fatalf("filePreNotesForAll notes too short (%d chars); test fixtures must supply real pre-notes", len(notes))
+	}
+	for _, scenario := range run.Scenarios {
+		if _, err := FilePreNote(store, run, scenario.ID, session, notes); err != nil {
+			t.Fatalf("file pre-note for scenario %s: %v", scenario.ID, err)
+		}
+	}
+}
+
+// filePreNote files a single pre-test note for the given scenario+session
+// pair with a canned note body. It is the minimal helper used by tests that
+// only need to satisfy the record gate for one scenario.
+func filePreNote(t *testing.T, store *Store, run Run, scenario, session string) {
+	t.Helper()
+	if _, err := FilePreNote(store, run, scenario, session, testPreNoteText); err != nil {
+		t.Fatalf("file pre-note for scenario %s session %s: %v", scenario, session, err)
+	}
+}
+
+// testPreNoteText is a fixed pre-test note body that safely clears the
+// 20-character minimum shared with proctor verify notes.
+const testPreNoteText = "about to verify this scenario end to end with the described fixture screenshots"
 
 // verifyAllScenarios walks every evidence entry in the ledger and calls
 // VerifyEvidence once per (scenario, session) pair using a fixed observation

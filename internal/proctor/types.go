@@ -189,6 +189,15 @@ type Provenance struct {
 	RecordedBy string   `json:"recorded_by"`
 }
 
+type PreNote struct {
+	ID        string    `json:"id"`
+	RunID     string    `json:"run_id"`
+	Scenario  string    `json:"scenario"`
+	Session   string    `json:"session"`
+	Notes     string    `json:"notes"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Assertion struct {
 	Description string `json:"description"`
 	Expected    string `json:"expected,omitempty"`

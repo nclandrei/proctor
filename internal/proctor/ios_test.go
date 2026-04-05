@@ -114,6 +114,7 @@ func TestRecordIOSEvaluatesStructuredAssertions(t *testing.T) {
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
 	screenshot := writeScreenshotFixture(t, repo, "library.png", "library-screen")
 
+	filePreNote(t, store, run, "happy-path", "pagena-library-1")
 	if err := RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "pagena-library-1",
@@ -167,6 +168,7 @@ func TestIOSImplicitHealthChecksFailWhenIssuesAreUnaccountedFor(t *testing.T) {
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 1, 0))
 	screenshot := writeScreenshotFixture(t, repo, "library.png", "library-screen")
 
+	filePreNote(t, store, run, "happy-path", "pagena-library-1")
 	// Record with implicit health checks that will fail; error expected.
 	_ = RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID: "happy-path",
@@ -224,6 +226,7 @@ func TestIOSFailAssertionReportsUnexpectedPassClearly(t *testing.T) {
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
 	screenshot := writeScreenshotFixture(t, repo, "library.png", "library-screen")
 
+	filePreNote(t, store, run, "happy-path", "pagena-library-1")
 	// Record with a fail-assert that unexpectedly passes; error expected.
 	_ = RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID: "happy-path",
@@ -274,6 +277,7 @@ func TestDonePassesWhenRequiredIOSEvidenceExists(t *testing.T) {
 
 	for i, scenarioID := range []string{"happy-path", "failure-path"} {
 		screenshot := writeScreenshotFixture(t, repo, fmt.Sprintf("library-%d.png", i), fmt.Sprintf("library-screen-%s", scenarioID))
+		filePreNote(t, store, run, scenarioID, "pagena-library-1")
 		if err := RecordIOS(store, run, IOSRecordOptions{
 			ScenarioID: scenarioID,
 			SessionID:  "pagena-library-1",
@@ -350,6 +354,7 @@ func TestIOSReportRequiresBundleIDAndScreen(t *testing.T) {
 }`)
 	screenshot := writeScreenshotFixture(t, repo, "library.png", "library-screen")
 
+	filePreNote(t, store, run, "happy-path", "pagena-library-1")
 	if err := RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "pagena-library-1",

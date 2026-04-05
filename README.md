@@ -194,7 +194,28 @@ proctor start \
   --edge-case "any feature-specific risks=N/A: no additional risks"
 ```
 
-### 2. Capture Real Evidence
+### 2. File A Pre-Test Note Before Recording
+
+Before any `proctor record` call, commit to what you are about to test by
+filing a pre-test note with the same session id you will use when you record
+the evidence:
+
+```bash
+proctor note \
+  --scenario happy-path \
+  --session auth-browser-1 \
+  --notes "about to log in with demo@example.com and expect /dashboard with a Sign out link"
+```
+
+Pre-notes are the forcing function. The scenario description lives in the
+contract; the pre-note is the agent's concrete statement of "right now, in
+this session, I am about to test X." `proctor record` refuses to accept
+evidence for a `(scenario, session)` pair that does not yet have at least
+one pre-note, including `record curl`. Notes must be at least 20 characters.
+Additional notes for the same `(scenario, session)` pair are appended to
+`notes.jsonl` as an audit trail.
+
+### 3. Capture Real Evidence
 
 Proctor does not drive the browser for you. Use your own browser tooling to produce:
 
@@ -267,7 +288,7 @@ workflow that produces the required artifacts and assertions.
 At runtime, `proctor start`, `proctor status`, and `proctor done` also print
 local recommendations based on tools found on `PATH`.
 
-### 3. Attach Browser Evidence
+### 4. Attach Browser Evidence
 
 Each `record browser` command attaches one browser run to one scenario:
 
@@ -285,7 +306,7 @@ proctor record browser \
 
 You can reuse one browser report for multiple scenarios if it genuinely proves each one.
 
-### 4. Capture And Attach Real iOS Evidence
+### 5. Capture And Attach Real iOS Evidence
 
 Proctor does not boot the simulator for you. Use your own simulator tooling to
 build, launch, screenshot, and inspect logs. Proctor only needs a screenshot
@@ -326,7 +347,7 @@ proctor record ios \
 One simulator report can be reused for multiple scenarios if it genuinely
 proves each one.
 
-### 5. Attach Real Desktop Evidence
+### 6. Attach Real Desktop Evidence
 
 Proctor does not launch the app for you. Use your own window capture tooling to
 screenshot and inspect the running app. Proctor only needs a screenshot plus a
@@ -363,7 +384,7 @@ proctor record desktop \
 One desktop report can be reused for multiple scenarios if it genuinely
 proves each one.
 
-### 6. Attach Real CLI Evidence
+### 7. Attach Real CLI Evidence
 
 Then record the terminal evidence against the scenario:
 
@@ -380,7 +401,7 @@ proctor record cli \
   --assert 'screenshot = true'
 ```
 
-### 7. Attach HTTP Evidence When Required
+### 8. Attach HTTP Evidence When Required
 
 When a scenario requires `curl`, wrap the real HTTP command that hits one of the scenario's declared `--curl-endpoint` contracts:
 
@@ -396,7 +417,7 @@ proctor record curl \
     -d '{"email":"demo@example.com","password":"wrong"}'
 ```
 
-### 8. Verify Each Recorded Screenshot
+### 9. Verify Each Recorded Screenshot
 
 Every `proctor record` call that produces a screenshot marks that evidence
 `pending-verification`. Before `proctor done` can pass, the agent must
@@ -414,7 +435,7 @@ Notes must be at least 20 characters and should describe specific, falsifiable
 details visible in the image rather than vague claims like "ok" or
 "looks good". Each evidence record can only be verified once.
 
-### 9. Check Coverage And Finish
+### 10. Check Coverage And Finish
 
 ```bash
 proctor status
@@ -632,6 +653,9 @@ CLI:
   Creates the verification contract.
 - `proctor status`
   Shows what still passes or fails.
+- `proctor note`
+  Files a pre-test note for a `(scenario, session)` pair. Must be called
+  before any `proctor record` command for that pair.
 - `proctor record browser`
   Attaches browser evidence to one scenario.
 - `proctor record cli`
@@ -655,6 +679,7 @@ Use subcommand help for exact flags:
 
 ```bash
 proctor start --help
+proctor note --help
 proctor record browser --help
 proctor record cli --help
 proctor record ios --help
@@ -675,6 +700,7 @@ Artifacts live outside the repo by default:
 Important files:
 
 - `run.json`
+- `notes.jsonl`
 - `evidence.jsonl`
 - `captures.jsonl`
 - `contract.md`

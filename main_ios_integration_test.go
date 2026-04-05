@@ -63,6 +63,14 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
 		for i, scenarioID := range []string{"happy-path", "failure-path"} {
 			screenshotPath := writeCLIScreenshot(t, repoRoot, fmt.Sprintf("library-%d.png", i), fmt.Sprintf("image-%s", scenarioID))
 			if err := run([]string{
+				"note",
+				"--scenario", scenarioID,
+				"--session", "pagena-library-1",
+				"--notes", "about to verify the library screen for scenario " + scenarioID + " with the fixture screenshot",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := run([]string{
 				"record", "ios",
 				"--scenario", scenarioID,
 				"--session", "pagena-library-1",

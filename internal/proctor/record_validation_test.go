@@ -10,6 +10,234 @@ import (
 	"time"
 )
 
+func TestRecordBrowserRejectsMissingPreNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
+	desktopShot := writeScreenshotFixture(t, repo, "desktop.png", "desk-image")
+	mobileShot := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "no-prenote-session",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktopShot, "mobile": mobileShot},
+		PassAssertions: []string{"final_url contains /dashboard"},
+	})
+	if err == nil {
+		t.Fatal("expected RecordBrowser to refuse evidence without a pre-note")
+	}
+	if !strings.Contains(err.Error(), "file a pre-test note first") {
+		t.Fatalf("expected pre-note gate error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "proctor note --scenario happy-path --session no-prenote-session") {
+		t.Fatalf("expected gate error to include the concrete proctor note hint, got: %v", err)
+	}
+}
+
+func TestRecordIOSRejectsMissingPreNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleIOSStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
+	screenshot := writeScreenshotFixture(t, repo, "library.png", "library-image")
+
+	err = RecordIOS(store, run, IOSRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "ios-no-prenote",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"library": screenshot},
+		PassAssertions: []string{"bundle_id = com.example.pagena"},
+	})
+	if err == nil {
+		t.Fatal("expected RecordIOS to refuse evidence without a pre-note")
+	}
+	if !strings.Contains(err.Error(), "file a pre-test note first") {
+		t.Fatalf("expected pre-note gate error, got: %v", err)
+	}
+}
+
+func TestRecordDesktopRejectsMissingPreNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleDesktopStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
+	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
+
+	err = RecordDesktop(store, run, DesktopRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "desktop-no-prenote",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"window": screenshot},
+		PassAssertions: []string{"app_name contains Firefox"},
+	})
+	if err == nil {
+		t.Fatal("expected RecordDesktop to refuse evidence without a pre-note")
+	}
+	if !strings.Contains(err.Error(), "file a pre-test note first") {
+		t.Fatalf("expected pre-note gate error, got: %v", err)
+	}
+}
+
+func TestRecordCLIRejectsMissingPreNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleCLIStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
+	transcript := writeFixture(t, repo, "pane.txt", "Usage:\n  demo help\nOnboarding prompt output\n")
+
+	err = RecordCLI(store, run, CLIRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "cli-no-prenote",
+		Command:        "demo help",
+		TranscriptPath: transcript,
+		Screenshots:    map[string]string{"terminal": screenshot},
+		PassAssertions: []string{"screenshot = true"},
+	})
+	if err == nil {
+		t.Fatal("expected RecordCLI to refuse evidence without a pre-note")
+	}
+	if !strings.Contains(err.Error(), "file a pre-test note first") {
+		t.Fatalf("expected pre-note gate error, got: %v", err)
+	}
+}
+
+func TestRecordCurlRejectsMissingPreNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = RecordCurl(store, run, CurlRecordOptions{
+		ScenarioID: "happy-path",
+		Command: []string{
+			"sh", "-c",
+			`printf 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"ok":true}'`,
+		},
+		PassAssertions: []string{"status = 200"},
+	})
+	if err == nil {
+		t.Fatal("expected RecordCurl to refuse evidence without a pre-note")
+	}
+	if !strings.Contains(err.Error(), "file a pre-test note first") {
+		t.Fatalf("expected pre-note gate error, got: %v", err)
+	}
+}
+
+func TestDoneBlocksWhenPreNoteMissingForRecordedEvidence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Synthesize a browser evidence record directly, bypassing the record
+	// gate, to simulate a legacy ledger where evidence exists without a
+	// pre-note.
+	shot := writeScreenshotFixture(t, repo, "desktop.png", "image")
+	artifact, err := store.CopyArtifact(run, SurfaceBrowser, "happy-path", "desktop", shot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact.Kind = ArtifactImage
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: "happy-path",
+		Surface:    SurfaceBrowser,
+		Tier:       TierRegisteredRun,
+		CreatedAt:  time.Now().UTC(),
+		Title:      "legacy browser verification",
+		Provenance: Provenance{Mode: "registered-session", Tool: "legacy", SessionID: "legacy-session", CWD: run.RepoRoot, RecordedBy: "proctor"},
+		Assertions: []Assertion{{Description: "console_errors = 0", Result: AssertionPass}},
+		Artifacts:  []Artifact{artifact},
+		Status:     EvidenceStatusComplete,
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := Evaluate(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.Complete {
+		t.Fatalf("expected evaluation to remain incomplete with missing pre-note, got %#v", eval)
+	}
+	var happyPath ScenarioEvaluation
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.ID == "happy-path" {
+			happyPath = item
+			break
+		}
+	}
+	if !containsSubstring(happyPath.BrowserIssues, "has evidence but no pre-test note recorded") {
+		t.Fatalf("expected pre-note gap message, got %#v", happyPath.BrowserIssues)
+	}
+}
+
 func TestRecordBrowserRejectsTinyScreenshot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
@@ -29,6 +257,7 @@ func TestRecordBrowserRejectsTinyScreenshot(t *testing.T) {
 	// 5-byte file — well under the 10KB minimum.
 	tinyScreenshot := writeFixture(t, repo, "desktop.png", "image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	err = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-1",
@@ -62,6 +291,7 @@ func TestRecordCLIRejectsEmptyTranscript(t *testing.T) {
 	screenshot := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
 	emptyTranscript := writeFixture(t, repo, "pane.txt", "")
 
+	filePreNote(t, store, run, "happy-path", "cli-1")
 	err = RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "cli-1",
@@ -97,6 +327,7 @@ func TestRecordCLIRejectsNearEmptyTranscript(t *testing.T) {
 	// Just a few characters — not meaningful terminal output.
 	tinyTranscript := writeFixture(t, repo, "pane.txt", "$ ")
 
+	filePreNote(t, store, run, "happy-path", "cli-1")
 	err = RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "cli-1",
@@ -163,6 +394,8 @@ func TestCompleteRunAcceptsFreshRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	filePreNotesForAll(t, store, run, "browser-1", testPreNoteText)
 
 	// Record enough evidence to satisfy the contract.
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
@@ -282,6 +515,7 @@ func TestRecordBrowserFailsAtRecordTimeWhenAssertionsFail(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 5, 0, 0, 0))
 	screenshot := writeScreenshotFixture(t, repo, "desktop.png", "image")
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	err = RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-1",
@@ -429,6 +663,7 @@ func TestRecordBrowserAutoWritesLedgerEntryPerImage(t *testing.T) {
 	mobile := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-1",
@@ -507,6 +742,7 @@ func TestRecordIOSAutoWritesLedgerEntryPerImage(t *testing.T) {
 	screenshot := writeScreenshotFixture(t, repo, "library.png", "ios-image")
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
 
+	filePreNote(t, store, run, "happy-path", "ios-1")
 	if err := RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "ios-1",
@@ -558,6 +794,7 @@ func TestRecordDesktopAutoWritesLedgerEntryPerImage(t *testing.T) {
 	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
 
+	filePreNote(t, store, run, "happy-path", "desktop-1")
 	if err := RecordDesktop(store, run, DesktopRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "desktop-1",
@@ -609,6 +846,7 @@ func TestRecordCLIAutoWritesLedgerEntryPerImage(t *testing.T) {
 	terminal := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
 	transcript := writeFixture(t, repo, "pane.txt", "Usage:\n  demo help\nOnboarding prompt output\n")
 
+	filePreNote(t, store, run, "happy-path", "cli-1")
 	if err := RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "cli-1",
@@ -661,6 +899,7 @@ func TestRecordBrowserTamperDetectedViaLedger(t *testing.T) {
 	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
 
+	filePreNote(t, store, run, "happy-path", "browser-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-1",

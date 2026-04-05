@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setupVerifyFixture(t *testing.T) (*Store, Run, string) {
@@ -26,6 +27,7 @@ func setupVerifyFixture(t *testing.T) (*Store, Run, string) {
 	desktopShot := writeScreenshotFixture(t, repo, "verify-desktop.png", "verify-desktop-image")
 	mobileShot := writeScreenshotFixture(t, repo, "verify-mobile.png", "verify-mobile-image")
 
+	filePreNote(t, store, run, "happy-path", "verify-session-1")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "verify-session-1",
@@ -293,6 +295,67 @@ func TestVerifyRequiresScenarioAndSession(t *testing.T) {
 	}
 }
 
+func TestDoneBlocksOnMissingPreNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-prenote-done-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Synthesize complete evidence for happy-path without filing a pre-note.
+	shot := writeScreenshotFixture(t, repo, "desktop.png", "prenote-done-image")
+	artifact, err := store.CopyArtifact(run, SurfaceBrowser, "happy-path", "desktop", shot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact.Kind = ArtifactImage
+	now := time.Now().UTC()
+	evidence := Evidence{
+		ID:         newID("ev"),
+		RunID:      run.ID,
+		ScenarioID: "happy-path",
+		Surface:    SurfaceBrowser,
+		Tier:       TierRegisteredRun,
+		CreatedAt:  now,
+		Title:      "browser verification",
+		Provenance: Provenance{Mode: "registered-session", Tool: "browser", SessionID: "done-session", CWD: run.RepoRoot, RecordedBy: "proctor"},
+		Assertions: []Assertion{{Description: "console_errors = 0", Result: AssertionPass}},
+		Artifacts:  []Artifact{artifact},
+		Status:     EvidenceStatusComplete,
+		Notes:      "verified note body",
+		VerifiedAt: &now,
+	}
+	if err := store.AppendEvidence(run, evidence); err != nil {
+		t.Fatal(err)
+	}
+
+	eval, err := CompleteRun(store, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.Complete {
+		t.Fatalf("expected done to block while a pre-test note is missing, got complete eval")
+	}
+	var happyPath ScenarioEvaluation
+	for _, item := range eval.ScenarioEvaluations {
+		if item.Scenario.ID == "happy-path" {
+			happyPath = item
+			break
+		}
+	}
+	if !containsSubstring(happyPath.BrowserIssues, "has evidence but no pre-test note recorded") {
+		t.Fatalf("expected pre-note gap reported on happy-path, got %#v", happyPath.BrowserIssues)
+	}
+}
+
 func TestRecordEmitsVerificationInstruction(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
@@ -316,6 +379,7 @@ func TestRecordEmitsVerificationInstruction(t *testing.T) {
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/dashboard", 0, 0, 0, 0))
 	desktopShot := writeScreenshotFixture(t, repo, "desk.png", "desk-image")
 	mobileShot := writeScreenshotFixture(t, repo, "mob.png", "mob-image")
+	filePreNote(t, store, run, "happy-path", "instruction-session")
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID: "happy-path",
 		SessionID:  "instruction-session",

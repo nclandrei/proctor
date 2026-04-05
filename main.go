@@ -57,6 +57,8 @@ func run(args []string) error {
 		return runStart(store, cwd, args[1:])
 	case "status":
 		return runStatus(store, cwd)
+	case "note":
+		return runNote(store, cwd, args[1:])
 	case "record":
 		return runRecord(store, cwd, args[1:])
 	case "verify":
@@ -125,10 +127,23 @@ func runStatus(store *proctor.Store, cwd string) error {
 	if err != nil {
 		return err
 	}
+	preNotes, err := store.LoadPreNotes(run)
+	if err != nil {
+		return err
+	}
+	preNoteScenarios := map[string]bool{}
+	for _, note := range preNotes {
+		preNoteScenarios[note.Scenario] = true
+	}
 	fmt.Printf("Run: %s\n", run.ID)
 	fmt.Printf("Feature: %s\n", run.Feature)
 	for _, item := range eval.ScenarioEvaluations {
 		fmt.Printf("- %s (%s)\n", item.Scenario.Label, item.Scenario.ID)
+		if preNoteScenarios[item.Scenario.ID] {
+			fmt.Printf("  pre-note: filed\n")
+		} else {
+			fmt.Printf("  pre-note: missing (run proctor note --scenario %s --session <session> --notes '...')\n", item.Scenario.ID)
+		}
 		if item.Scenario.CurlRequired {
 			if len(item.Scenario.CurlEndpoints) > 0 {
 				fmt.Printf("  curl contract: %s\n", strings.Join(item.Scenario.CurlEndpoints, "; "))
@@ -155,6 +170,41 @@ func runStatus(store *proctor.Store, cwd string) error {
 		fmt.Println("Status: incomplete")
 		printRunRecommendations(os.Stdout, "Suggested capture workflows:", run, &eval)
 	}
+	return nil
+}
+
+func runNote(store *proctor.Store, cwd string, args []string) error {
+	fs := flag.NewFlagSet("note", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var scenario, session, notes string
+	fs.StringVar(&scenario, "scenario", "", "")
+	fs.StringVar(&session, "session", "", "")
+	fs.StringVar(&notes, "notes", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var missing []string
+	if strings.TrimSpace(scenario) == "" {
+		missing = append(missing, "--scenario")
+	}
+	if strings.TrimSpace(session) == "" {
+		missing = append(missing, "--session")
+	}
+	if strings.TrimSpace(notes) == "" {
+		missing = append(missing, "--notes")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required flags: %s", strings.Join(missing, ", "))
+	}
+	run, err := store.LoadRun(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	note, err := proctor.FilePreNote(store, run, scenario, session, notes)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Filed pre-test note %s for scenario %s session %s\n", note.ID, note.Scenario, note.Session)
 	return nil
 }
 
