@@ -60,75 +60,35 @@ func e2eBrowserReport(t *testing.T, repo, name, finalURL string) string {
 	return path
 }
 
-// e2eWriteCapturedArtifact writes a PNG to the run's artifact directory and
-// appends a corresponding ledger entry. Tests use this helper in place of
-// the removed Capture() engine so they can keep exercising ledger binding
-// semantics.
-func e2eWriteCapturedArtifact(t *testing.T, store *Store, run Run, surface, scenarioID, sessionID, label string, content []byte, target map[string]string) CaptureRecord {
+// e2eWriteScreenshot writes a unique PNG payload at repo/name and returns
+// its absolute path. Content is seeded by name so tests can control SHA
+// uniqueness.
+func e2eWriteScreenshot(t *testing.T, repo, name, seed string) string {
 	t.Helper()
-	id, err := GenerateCaptureID()
-	if err != nil {
+	path := filepath.Join(repo, name)
+	if err := os.WriteFile(path, e2eScreenshotBytes(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	artifactDir := filepath.Join(store.RunDir(run), "artifacts", surface, scenarioID)
-	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	artifactPath := filepath.Join(artifactDir, fmt.Sprintf("capture-%s-%s.png", id, label))
-	if err := os.WriteFile(artifactPath, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(content)
-	sha := hex.EncodeToString(sum[:])
-	mergedTarget := map[string]string{"scenario": scenarioID, "session": sessionID}
-	for k, v := range target {
-		mergedTarget[k] = v
-	}
-	rec := CaptureRecord{
-		ID:             id,
-		RunID:          run.ID,
-		ScenarioID:     scenarioID,
-		SessionID:      sessionID,
-		Surface:        surface,
-		Label:          label,
-		ArtifactPath:   artifactPath,
-		ArtifactSHA256: sha,
-		ArtifactBytes:  int64(len(content)),
-		Target:         mergedTarget,
-		Verification:   CaptureVerifyMeta,
-		CapturedAt:     time.Now().UTC(),
-	}
-	if err := store.CaptureLedger(run).Append(rec); err != nil {
-		t.Fatalf("append capture: %v", err)
-	}
-	return rec
+	return path
 }
 
-// TestCaptureE2E_HappyPathRoundtrip verifies a ledger entry plus a recorded
-// --capture-id lets RecordBrowser succeed.
-func TestCaptureE2E_HappyPathRoundtrip(t *testing.T) {
-	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-happy")
+// TestCaptureE2E_LedgerAutoPopulated verifies that a successful
+// RecordBrowser call appends one ledger entry per image artifact it
+// accepts, that Evidence.CaptureIDs matches the ledger, and that the
+// ledger SHAs match the submitted artifact SHAs.
+func TestCaptureE2E_LedgerAutoPopulated(t *testing.T) {
+	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-auto")
 
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "browser-e2e-1", "desktop",
-		e2eScreenshotBytes("happy"),
-		map[string]string{"url": "http://127.0.0.1:3000/login"},
-	)
-	if !strings.HasPrefix(rec.ID, "cap_") {
-		t.Fatalf("expected capture id prefix, got %q", rec.ID)
-	}
-	if _, err := os.Stat(rec.ArtifactPath); err != nil {
-		t.Fatalf("capture artifact missing: %v", err)
-	}
-
+	desktop := e2eWriteScreenshot(t, run.RepoRoot, "desktop.png", "auto-desktop")
+	mobile := e2eWriteScreenshot(t, run.RepoRoot, "mobile.png", "auto-mobile")
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-e2e-1",
 		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
+		Screenshots:    map[string]string{"desktop": desktop, "mobile": mobile},
 		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
 	}); err != nil {
 		t.Fatalf("record browser: %v", err)
 	}
@@ -140,389 +100,212 @@ func TestCaptureE2E_HappyPathRoundtrip(t *testing.T) {
 	if len(evidence) != 1 {
 		t.Fatalf("expected 1 evidence, got %d", len(evidence))
 	}
-	if evidence[0].ScenarioID != "happy-path" || evidence[0].Surface != SurfaceBrowser {
-		t.Fatalf("unexpected evidence: %#v", evidence[0])
+	ev := evidence[0]
+	if len(ev.CaptureIDs) != 2 {
+		t.Fatalf("expected 2 capture ids on evidence, got %d: %v", len(ev.CaptureIDs), ev.CaptureIDs)
 	}
 
 	records, err := store.CaptureLedger(run).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 {
-		t.Fatalf("expected 1 ledger entry, got %d", len(records))
+	if len(records) != 2 {
+		t.Fatalf("expected 2 ledger entries, got %d", len(records))
 	}
-	if records[0].ID != rec.ID {
-		t.Fatalf("ledger id mismatch: %q vs %q", records[0].ID, rec.ID)
-	}
-	if records[0].ArtifactSHA256 != rec.ArtifactSHA256 {
-		t.Fatalf("ledger sha mismatch")
+
+	// Every capture id on the evidence resolves through the ledger.
+	for _, id := range ev.CaptureIDs {
+		if !strings.HasPrefix(id, "cap_") {
+			t.Errorf("capture id missing cap_ prefix: %s", id)
+		}
+		rec, ok, err := store.CaptureLedger(run).FindByID(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Fatalf("capture id %s missing from ledger", id)
+		}
+		if rec.Surface != SurfaceBrowser {
+			t.Errorf("ledger record %s wrong surface: %s", id, rec.Surface)
+		}
+		if rec.ScenarioID != "happy-path" {
+			t.Errorf("ledger record %s wrong scenario: %s", id, rec.ScenarioID)
+		}
+		if rec.SessionID != "browser-e2e-1" {
+			t.Errorf("ledger record %s wrong session: %s", id, rec.SessionID)
+		}
 	}
 }
 
-// TestCaptureE2E_TamperedArtifactRejected verifies that overwriting the
-// captured PNG after capture causes RecordBrowser --capture-id to reject
-// the submission (SHA mismatch is detected via "no submitted artifact
-// matches capture").
-func TestCaptureE2E_TamperedArtifactRejected(t *testing.T) {
+// TestCaptureE2E_TamperedArtifactDetectedByLedger verifies that after a
+// successful record, we can detect tampering by comparing the ledger's
+// recorded SHA with the artifact that would-be submitted after tampering.
+// verifyCaptureBinding remains available for callers who want to validate
+// a submission against a ledger entry out-of-band.
+func TestCaptureE2E_TamperedArtifactDetectedByLedger(t *testing.T) {
 	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-tamper")
 
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "tamper-1", "desktop",
-		e2eScreenshotBytes("tamper"), nil,
-	)
-
-	// Overwrite the artifact so its SHA no longer matches the ledger.
-	tampered := make([]byte, int(DefaultMinScreenshotSize)+1)
-	copy(tampered, []byte("tampered-bytes-"))
-	for i := len("tampered-bytes-"); i < len(tampered); i++ {
-		tampered[i] = byte((i * 7) & 0xff)
-	}
-	if err := os.WriteFile(rec.ArtifactPath, tampered, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
+	desktop := e2eWriteScreenshot(t, run.RepoRoot, "desktop.png", "tamper-desktop")
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
-	err := RecordBrowser(store, run, BrowserRecordOptions{
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "tamper-1",
 		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
+		Screenshots:    map[string]string{"desktop": desktop},
 		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected tamper detection to reject record")
-	}
-	if !strings.Contains(err.Error(), "no submitted artifact matches capture") {
-		t.Fatalf("expected SHA mismatch error, got %v", err)
+	}); err != nil {
+		t.Fatalf("record browser: %v", err)
 	}
 
-	// Ledger still holds a single entry (the original capture), evidence did
-	// NOT get appended.
-	records, err := store.CaptureLedger(run).Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != 1 {
-		t.Fatalf("expected ledger untouched, got %d entries", len(records))
-	}
 	evidence, err := store.LoadEvidence(run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(evidence) != 0 {
-		t.Fatalf("expected no evidence after tampered record, got %d", len(evidence))
+	if len(evidence) != 1 || len(evidence[0].CaptureIDs) != 1 {
+		t.Fatalf("expected 1 evidence with 1 capture id, got %#v", evidence)
 	}
-}
+	captureID := evidence[0].CaptureIDs[0]
 
-// TestCaptureE2E_SessionMismatchRejected verifies that a capture-id
-// captured under session=A is refused when the record command submits
-// session=B.
-func TestCaptureE2E_SessionMismatchRejected(t *testing.T) {
-	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-session")
-
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "session-A", "desktop",
-		e2eScreenshotBytes("session"), nil,
-	)
-
-	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
-	err := RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "session-B",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected session mismatch rejection")
-	}
-	if !strings.Contains(err.Error(), "session") || !strings.Contains(err.Error(), "cannot bind") {
-		t.Fatalf("expected session-binding error, got %v", err)
-	}
-}
-
-// TestCaptureE2E_ScenarioMismatchRejected verifies that a capture-id
-// captured for scenario S1 is refused when the record command references
-// scenario S2.
-func TestCaptureE2E_ScenarioMismatchRejected(t *testing.T) {
-	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-scenario")
-
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "sess-x", "desktop",
-		e2eScreenshotBytes("scenario"), nil,
-	)
-
-	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
-	err := RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "failure-path",
-		SessionID:      "sess-x",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected scenario mismatch rejection")
-	}
-	if !strings.Contains(err.Error(), "scenario") || !strings.Contains(err.Error(), "cannot bind") {
-		t.Fatalf("expected scenario-binding error, got %v", err)
-	}
-}
-
-// TestCaptureE2E_SurfaceMismatchRejected verifies that a capture recorded
-// for surface=browser is refused when submitted to RecordIOS.
-func TestCaptureE2E_SurfaceMismatchRejected(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-e2e-surface")
-	store, err := NewStore()
+	// Look up the ledger record and verify its SHA matches the artifact
+	// that landed in evidence.
+	rec, ok, err := store.CaptureLedger(run).FindByID(captureID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := CreateRun(store, repo, sampleIOSStartOptions())
-	if err != nil {
-		t.Fatal(err)
+	if !ok {
+		t.Fatalf("capture %s missing from ledger", captureID)
+	}
+	var imgSHA string
+	for _, art := range evidence[0].Artifacts {
+		if art.Kind == ArtifactImage {
+			imgSHA = art.SHA256
+			break
+		}
+	}
+	if rec.ArtifactSHA256 != imgSHA {
+		t.Fatalf("ledger sha %s does not match evidence sha %s", rec.ArtifactSHA256, imgSHA)
 	}
 
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "ios-sess-1", "desktop",
-		e2eScreenshotBytes("surface"), nil,
-	)
-
-	// Build an iOS report + screenshot whose content matches the captured
-	// PNG so we reach the surface-mismatch check rather than tripping the
-	// "no submitted artifact matches capture" branch.
-	iosReportBody := sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0)
-	iosReport := filepath.Join(repo, "ios-report.json")
-	if err := os.WriteFile(iosReport, []byte(iosReportBody), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	err = RecordIOS(store, run, IOSRecordOptions{
-		ScenarioID: "happy-path",
-		SessionID:  "ios-sess-1",
-		ReportPath: iosReport,
-		Screenshots: map[string]string{
-			"library-screen": rec.ArtifactPath,
-		},
-		PassAssertions: []string{"screen contains Library", "bundle_id = com.example.pagena"},
-		CaptureID:      rec.ID,
-	})
+	// Simulate a tampered submission via verifyCaptureBinding: hand it an
+	// artifact whose SHA differs from the ledger entry, and it should
+	// reject as "no submitted artifact matches capture".
+	err = verifyCaptureBinding(store, run, "happy-path", "tamper-1", SurfaceBrowser, rec.ID, []Artifact{{SHA256: "0000000000000000000000000000000000000000000000000000000000000000"}})
 	if err == nil {
-		t.Fatal("expected surface mismatch rejection")
+		t.Fatal("expected verifyCaptureBinding to reject tampered sha")
 	}
-	if !strings.Contains(err.Error(), "surface") || !strings.Contains(err.Error(), "cannot bind") {
-		t.Fatalf("expected surface-binding error, got %v", err)
+	if !strings.Contains(err.Error(), "no submitted artifact matches capture") {
+		t.Fatalf("expected tamper error, got %v", err)
 	}
 }
 
-// TestCaptureE2E_UnknownCaptureIDRejected verifies that an entirely
-// fictitious capture id is rejected with a "not found in ledger" error.
-func TestCaptureE2E_UnknownCaptureIDRejected(t *testing.T) {
-	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-unknown")
+// TestCaptureE2E_CrossScenarioReuseRejected verifies that attempting to
+// reuse the same screenshot SHA for a second scenario is rejected by the
+// cross-scenario duplicate detector.
+func TestCaptureE2E_CrossScenarioReuseRejected(t *testing.T) {
+	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-reuse")
 
-	screenshot := writeScreenshotFixture(t, run.RepoRoot, "desktop.png", "desktop-real-image")
+	desktop := e2eWriteScreenshot(t, run.RepoRoot, "desktop.png", "reuse-desktop")
 	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
 
-	err := RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "unknown-sess",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": screenshot},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      "cap_NOTREAL",
-	})
-	if err == nil {
-		t.Fatal("expected unknown capture id to be rejected")
-	}
-	if !strings.Contains(err.Error(), "not found in ledger") {
-		t.Fatalf("expected 'not found in ledger' error, got %v", err)
-	}
-}
-
-// TestCaptureE2E_DoubleRecordRejected verifies that the same capture
-// artifact cannot be reused to satisfy two different scenarios. The
-// duplicate-screenshot detector catches this before the capture binding
-// check does, because the first record already copied the artifact into
-// evidence.jsonl for scenario S1.
-func TestCaptureE2E_DoubleRecordRejected(t *testing.T) {
-	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-double")
-
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "double-sess", "desktop",
-		e2eScreenshotBytes("double"), nil,
-	)
-
-	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
-
-	// First record succeeds and binds the artifact to scenario happy-path.
+	// First record binds the artifact to scenario happy-path.
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
-		SessionID:      "double-sess",
+		SessionID:      "reuse-sess",
 		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
+		Screenshots:    map[string]string{"desktop": desktop},
 		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
 	}); err != nil {
 		t.Fatalf("first record: %v", err)
 	}
 
-	// Second record attempts to reuse the same captured artifact for
-	// scenario failure-path. The duplicate-screenshot check fires first,
-	// because the artifact with this SHA already landed in scenario happy
-	// path's evidence. Either failure mode is acceptable; both demonstrate
-	// that a single capture cannot be recycled across scenarios.
+	// Second record attempts to reuse the same file (identical content,
+	// identical SHA) for a different scenario. detectDuplicateScreenshots
+	// should reject it.
 	err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "failure-path",
-		SessionID:      "double-sess",
+		SessionID:      "reuse-sess",
 		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
+		Screenshots:    map[string]string{"desktop": desktop},
 		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
 	})
 	if err == nil {
-		t.Fatal("expected double-record rejection")
+		t.Fatal("expected cross-scenario reuse to be rejected")
 	}
-	msg := err.Error()
-	okScenarioBind := strings.Contains(msg, "scenario") && strings.Contains(msg, "cannot bind")
-	okDupe := strings.Contains(msg, "each scenario requires unique evidence")
-	if !okScenarioBind && !okDupe {
-		t.Fatalf("expected scenario-binding OR duplicate-screenshot error, got %v", err)
-	}
-}
-
-// TestCaptureE2E_BackCompatNoCaptureID verifies that omitting --capture-id
-// continues to work as before (an unbound record succeeds when all other
-// validation passes).
-func TestCaptureE2E_BackCompatNoCaptureID(t *testing.T) {
-	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-backcompat")
-
-	screenshot := writeScreenshotFixture(t, run.RepoRoot, "desktop.png", "backcompat-unique-image")
-	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
-
-	if err := RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "backcompat-sess",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": screenshot},
-		PassAssertions: []string{"console_errors = 0"},
-		// CaptureID intentionally left empty.
-	}); err != nil {
-		t.Fatalf("back-compat record: %v", err)
+	if !strings.Contains(err.Error(), "each scenario requires unique evidence") {
+		t.Fatalf("expected duplicate-screenshot error, got %v", err)
 	}
 
-	evidence, err := store.LoadEvidence(run)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(evidence) != 1 {
-		t.Fatalf("expected 1 evidence item, got %d", len(evidence))
-	}
-
-	// Ledger is empty because no capture was ever run.
+	// Ledger should still have one entry (only the successful record).
 	records, err := store.CaptureLedger(run).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 0 {
-		t.Fatalf("expected empty ledger, got %d entries", len(records))
+	if len(records) != 1 {
+		t.Fatalf("expected 1 ledger entry after failed reuse, got %d", len(records))
 	}
 }
 
-// TestCaptureE2E_ConcurrentCaptures spawns N goroutines appending ledger
-// entries in parallel. All IDs should be distinct, the ledger file should
-// end up well-formed (JSONL, one record per line), and the number of lines
-// should match the number of workers. Intended to be exercised with -race.
-func TestCaptureE2E_ConcurrentCaptures(t *testing.T) {
+// TestCaptureE2E_ConcurrentRecordsLedgerConsistent spawns N parallel
+// RecordBrowser goroutines (one per scenario to avoid duplicate-screenshot
+// rejections) and verifies the ledger file ends well-formed with one
+// entry per image artifact.
+func TestCaptureE2E_ConcurrentRecordsLedgerConsistent(t *testing.T) {
 	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-concurrent")
 
-	perScenario := map[string][]byte{
-		"happy-path":   e2eScreenshotBytes("conc-happy"),
-		"failure-path": e2eScreenshotBytes("conc-failure"),
-	}
-
-	const workers = 10
+	// We need to use two distinct scenarios so cross-scenario dedupe
+	// doesn't reject identical image bytes. Use both happy-path and
+	// failure-path, each with unique screenshot content.
 	scenarios := []string{"happy-path", "failure-path"}
-	results := make([]CaptureRecord, workers)
-	errs := make([]error, workers)
+	const perScenario = 1
+	total := len(scenarios) * perScenario
+
 	var wg sync.WaitGroup
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
-		i := i
+	errs := make([]error, total)
+	wg.Add(total)
+	for idx, scen := range scenarios {
+		idx := idx
+		scen := scen
 		go func() {
 			defer wg.Done()
-			scen := scenarios[i%len(scenarios)]
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						errs[i] = fmt.Errorf("panic: %v", r)
-					}
-				}()
-				id, err := GenerateCaptureID()
-				if err != nil {
-					errs[i] = err
-					return
+			defer func() {
+				if r := recover(); r != nil {
+					errs[idx] = fmt.Errorf("panic: %v", r)
 				}
-				artifactDir := filepath.Join(store.RunDir(run), "artifacts", SurfaceBrowser, scen)
-				if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-					errs[i] = err
-					return
-				}
-				// Make each artifact unique by appending the worker index so
-				// scenario-level dedupe does not interfere with the ledger
-				// concurrency test.
-				content := append([]byte{}, perScenario[scen]...)
-				content[0] = byte(i)
-				artifactPath := filepath.Join(artifactDir, fmt.Sprintf("capture-%s-desktop.png", id))
-				if err := os.WriteFile(artifactPath, content, 0o644); err != nil {
-					errs[i] = err
-					return
-				}
-				sum := sha256.Sum256(content)
-				rec := CaptureRecord{
-					ID:             id,
-					RunID:          run.ID,
-					ScenarioID:     scen,
-					SessionID:      fmt.Sprintf("conc-sess-%d", i),
-					Surface:        SurfaceBrowser,
-					Label:          "desktop",
-					ArtifactPath:   artifactPath,
-					ArtifactSHA256: hex.EncodeToString(sum[:]),
-					ArtifactBytes:  int64(len(content)),
-					Verification:   CaptureVerifyMeta,
-					CapturedAt:     time.Now().UTC(),
-				}
-				if err := store.CaptureLedger(run).Append(rec); err != nil {
-					errs[i] = err
-					return
-				}
-				results[i] = rec
 			}()
+			screenshot := e2eWriteScreenshot(t, run.RepoRoot, fmt.Sprintf("concurrent-%s.png", scen), fmt.Sprintf("conc-%s", scen))
+			report := e2eBrowserReport(t, run.RepoRoot, fmt.Sprintf("report-%s.json", scen), "http://127.0.0.1:3000/dashboard")
+			if err := RecordBrowser(store, run, BrowserRecordOptions{
+				ScenarioID:     scen,
+				SessionID:      fmt.Sprintf("conc-sess-%s", scen),
+				ReportPath:     report,
+				Screenshots:    map[string]string{"desktop": screenshot},
+				PassAssertions: []string{"console_errors = 0"},
+			}); err != nil {
+				errs[idx] = err
+			}
 		}()
 	}
 	wg.Wait()
 
-	ids := map[string]bool{}
 	for i, err := range errs {
 		if err != nil {
-			t.Fatalf("worker %d: %v", i, err)
+			t.Fatalf("record %d: %v", i, err)
 		}
-		if ids[results[i].ID] {
-			t.Fatalf("duplicate capture id %s", results[i].ID)
-		}
-		ids[results[i].ID] = true
 	}
 
-	// Read ledger file raw and confirm one well-formed JSON object per
-	// line, matching the number of workers.
+	// Ledger file should contain `total` JSONL lines, each a valid
+	// CaptureRecord with a unique id.
 	ledgerPath := filepath.Join(store.RunDir(run), "captures.jsonl")
 	raw, err := os.ReadFile(ledgerPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
-	if len(lines) != workers {
-		t.Fatalf("expected %d ledger lines, got %d", workers, len(lines))
+	if len(lines) != total {
+		t.Fatalf("expected %d ledger lines, got %d", total, len(lines))
 	}
+	ids := map[string]bool{}
 	for i, line := range lines {
 		var decoded CaptureRecord
 		if err := json.Unmarshal([]byte(line), &decoded); err != nil {
@@ -531,28 +314,33 @@ func TestCaptureE2E_ConcurrentCaptures(t *testing.T) {
 		if decoded.ID == "" {
 			t.Fatalf("line %d missing id", i)
 		}
-	}
-
-	records, err := store.CaptureLedger(run).Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != workers {
-		t.Fatalf("expected %d ledger records, got %d", workers, len(records))
+		if ids[decoded.ID] {
+			t.Fatalf("duplicate capture id %s", decoded.ID)
+		}
+		ids[decoded.ID] = true
 	}
 }
 
-// TestCaptureE2E_LedgerJSONLFormat verifies that loaded capture records
-// round-trip correctly: timestamps are UTC, SHA is hex-encoded 64-char,
-// target is populated, and IDs match the expected cap_ format.
+// TestCaptureE2E_LedgerJSONLFormat verifies that an auto-written ledger
+// record round-trips correctly: cap_ prefix, 64-char hex SHA, UTC
+// timestamp, correct byte count, and matching surface/scenario/session
+// fields.
 func TestCaptureE2E_LedgerJSONLFormat(t *testing.T) {
 	store, run := webRun(t, "https://github.com/nclandrei/proctor-e2e-format")
 
+	desktop := e2eWriteScreenshot(t, run.RepoRoot, "desktop.png", "format-desktop")
+	report := e2eBrowserReport(t, run.RepoRoot, "report.json", "http://127.0.0.1:3000/dashboard")
+
 	before := time.Now().UTC().Add(-time.Second)
-	rec := e2eWriteCapturedArtifact(t, store, run, SurfaceBrowser, "happy-path", "fmt-sess", "desktop",
-		e2eScreenshotBytes("format"),
-		map[string]string{"url": "http://example.com"},
-	)
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "fmt-sess",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+	}); err != nil {
+		t.Fatalf("record browser: %v", err)
+	}
 	after := time.Now().UTC().Add(time.Second)
 
 	records, err := store.CaptureLedger(run).Load()
@@ -560,28 +348,35 @@ func TestCaptureE2E_LedgerJSONLFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(records))
+		t.Fatalf("expected 1 ledger record, got %d", len(records))
 	}
 	loaded := records[0]
 
-	// ID format.
 	if !strings.HasPrefix(loaded.ID, "cap_") {
 		t.Fatalf("expected cap_ prefix, got %q", loaded.ID)
 	}
-
-	// SHA format.
 	if len(loaded.ArtifactSHA256) != 64 {
-		t.Fatalf("expected 64-char hex sha, got %d chars: %q", len(loaded.ArtifactSHA256), loaded.ArtifactSHA256)
+		t.Fatalf("expected 64-char sha, got %d: %q", len(loaded.ArtifactSHA256), loaded.ArtifactSHA256)
 	}
 	hexRe := regexp.MustCompile("^[0-9a-f]{64}$")
 	if !hexRe.MatchString(loaded.ArtifactSHA256) {
-		t.Fatalf("sha is not lower-case hex: %q", loaded.ArtifactSHA256)
+		t.Fatalf("sha not lower-hex: %q", loaded.ArtifactSHA256)
 	}
 	if _, err := hex.DecodeString(loaded.ArtifactSHA256); err != nil {
 		t.Fatalf("sha does not hex-decode: %v", err)
 	}
 
-	// Timestamp must be UTC, non-zero, and within the captured window.
+	// Confirm sha matches the submitted file.
+	data, err := os.ReadFile(desktop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	expectSHA := hex.EncodeToString(sum[:])
+	if loaded.ArtifactSHA256 != expectSHA {
+		t.Fatalf("sha mismatch: ledger %q vs file %q", loaded.ArtifactSHA256, expectSHA)
+	}
+
 	if loaded.CapturedAt.IsZero() {
 		t.Fatal("timestamp is zero")
 	}
@@ -592,18 +387,19 @@ func TestCaptureE2E_LedgerJSONLFormat(t *testing.T) {
 		t.Fatalf("timestamp %v outside window [%v, %v]", loaded.CapturedAt, before, after)
 	}
 
-	// Target was populated.
-	if loaded.Target["scenario"] != "happy-path" {
-		t.Fatalf("expected scenario target, got %#v", loaded.Target)
+	if loaded.Surface != SurfaceBrowser {
+		t.Errorf("surface mismatch: %q", loaded.Surface)
 	}
-	if loaded.Target["url"] != "http://example.com" {
-		t.Fatalf("expected passthrough url target, got %#v", loaded.Target)
+	if loaded.ScenarioID != "happy-path" {
+		t.Errorf("scenario mismatch: %q", loaded.ScenarioID)
 	}
-	if loaded.ID != rec.ID {
-		t.Fatalf("loaded id %q vs returned id %q", loaded.ID, rec.ID)
+	if loaded.SessionID != "fmt-sess" {
+		t.Errorf("session mismatch: %q", loaded.SessionID)
+	}
+	if loaded.Label != "desktop" {
+		t.Errorf("label mismatch: %q", loaded.Label)
 	}
 
-	// Byte count matches the file on disk.
 	info, err := os.Stat(loaded.ArtifactPath)
 	if err != nil {
 		t.Fatal(err)

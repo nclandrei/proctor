@@ -246,10 +246,9 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
 	}
-	if opts.CaptureID != "" {
-		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceBrowser, opts.CaptureID, artifacts); err != nil {
-			return err
-		}
+	captureIDs, err := writeImageCaptureLedger(store, run, scenario.ID, opts.SessionID, SurfaceBrowser, artifacts)
+	if err != nil {
+		return err
 	}
 
 	reportData, err := ParseBrowserReport(opts.ReportPath)
@@ -280,6 +279,7 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 		},
 		Assertions: assertions,
 		Artifacts:  artifacts,
+		CaptureIDs: captureIDs,
 		Browser: &BrowserData{
 			URL:       run.BrowserURL,
 			SessionID: opts.SessionID,
@@ -345,10 +345,9 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
 	}
-	if opts.CaptureID != "" {
-		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceIOS, opts.CaptureID, artifacts); err != nil {
-			return err
-		}
+	captureIDs, err := writeImageCaptureLedger(store, run, scenario.ID, opts.SessionID, SurfaceIOS, artifacts)
+	if err != nil {
+		return err
 	}
 
 	reportData, err := ParseIOSReport(opts.ReportPath)
@@ -379,6 +378,7 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 		},
 		Assertions: assertions,
 		Artifacts:  artifacts,
+		CaptureIDs: captureIDs,
 		IOS:        &reportData,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
@@ -519,10 +519,9 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
 	}
-	if opts.CaptureID != "" {
-		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceCLI, opts.CaptureID, artifacts); err != nil {
-			return err
-		}
+	captureIDs, err := writeImageCaptureLedger(store, run, scenario.ID, opts.SessionID, SurfaceCLI, artifacts)
+	if err != nil {
+		return err
 	}
 
 	transcriptBytes, err := os.ReadFile(opts.TranscriptPath)
@@ -565,6 +564,7 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 		},
 		Assertions: assertions,
 		Artifacts:  artifacts,
+		CaptureIDs: captureIDs,
 		CLI: &CLIData{
 			Command:           strings.TrimSpace(opts.Command),
 			SessionID:         strings.TrimSpace(opts.SessionID),
@@ -630,10 +630,9 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
 	}
-	if opts.CaptureID != "" {
-		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceDesktop, opts.CaptureID, artifacts); err != nil {
-			return err
-		}
+	captureIDs, err := writeImageCaptureLedger(store, run, scenario.ID, opts.SessionID, SurfaceDesktop, artifacts)
+	if err != nil {
+		return err
 	}
 
 	reportData, err := ParseDesktopReport(opts.ReportPath)
@@ -666,6 +665,7 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 		},
 		Assertions: assertions,
 		Artifacts:  artifacts,
+		CaptureIDs: captureIDs,
 		Desktop:    &reportData,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
@@ -1827,6 +1827,51 @@ var DefaultMinTranscriptBytes = 10
 // proctor done rejects it as expired. Agents must start fresh runs if they
 // exceed this window.
 var DefaultMaxRunAge = 2 * time.Hour
+
+// writeImageCaptureLedger appends a CaptureRecord to the capture ledger for
+// every image artifact in the provided slice. It returns the capture IDs in
+// the same order as the input artifacts (non-image artifacts are skipped, so
+// the returned slice can be shorter than the input). Each generated ID is
+// also written onto the evidence.CaptureIDs field by the caller so reports
+// can cross-reference ledger entries.
+func writeImageCaptureLedger(store *Store, run Run, scenarioID, sessionID, surface string, artifacts []Artifact) ([]string, error) {
+	ledger := store.CaptureLedger(run)
+	runDir := store.RunDir(run)
+	now := time.Now().UTC()
+	var captureIDs []string
+	for _, artifact := range artifacts {
+		if artifact.Kind != ArtifactImage {
+			continue
+		}
+		id, err := GenerateCaptureID()
+		if err != nil {
+			return nil, fmt.Errorf("generate capture id: %w", err)
+		}
+		absPath := filepath.Join(runDir, artifact.Path)
+		info, err := os.Stat(absPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat capture artifact: %w", err)
+		}
+		rec := CaptureRecord{
+			ID:             id,
+			RunID:          run.ID,
+			ScenarioID:     scenarioID,
+			SessionID:      sessionID,
+			Surface:        surface,
+			Label:          artifact.Label,
+			ArtifactPath:   absPath,
+			ArtifactSHA256: artifact.SHA256,
+			ArtifactBytes:  info.Size(),
+			Verification:   CaptureVerifyNone,
+			CapturedAt:     now,
+		}
+		if err := ledger.Append(rec); err != nil {
+			return nil, fmt.Errorf("append capture ledger: %w", err)
+		}
+		captureIDs = append(captureIDs, id)
+	}
+	return captureIDs, nil
+}
 
 func detectDuplicateScreenshots(store *Store, run Run, currentScenarioID string, artifacts []Artifact) error {
 	existing, err := store.LoadEvidence(run)

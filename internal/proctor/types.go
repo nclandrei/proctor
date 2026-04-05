@@ -164,6 +164,7 @@ type Evidence struct {
 	Provenance Provenance   `json:"provenance"`
 	Assertions []Assertion  `json:"assertions"`
 	Artifacts  []Artifact   `json:"artifacts"`
+	CaptureIDs []string     `json:"capture_ids,omitempty"`
 	Browser    *BrowserData `json:"browser,omitempty"`
 	IOS        *IOSData     `json:"ios,omitempty"`
 	Curl       *CurlData    `json:"curl,omitempty"`
@@ -309,7 +310,6 @@ type BrowserRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
-	CaptureID        string
 }
 
 type IOSRecordOptions struct {
@@ -321,7 +321,6 @@ type IOSRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
-	CaptureID        string
 }
 
 type DesktopRecordOptions struct {
@@ -333,7 +332,6 @@ type DesktopRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
-	CaptureID        string
 }
 
 type CurlRecordOptions struct {
@@ -354,7 +352,6 @@ type CLIRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
-	CaptureID        string
 }
 
 type Evaluation struct {

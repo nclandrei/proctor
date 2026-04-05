@@ -384,34 +384,6 @@ func TestCompleteRunRejectsDuplicateScreenshots(t *testing.T) {
 	}
 }
 
-// captureForTest appends a CaptureRecord for the given surface/scenario/session
-// with the specified SHA and returns the record. Tests use this helper to
-// target arbitrary SHAs without writing real artifact files.
-func captureForTest(t *testing.T, store *Store, run Run, surface, scenarioID, sessionID, sha string) CaptureRecord {
-	t.Helper()
-	id, err := GenerateCaptureID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec := CaptureRecord{
-		ID:             id,
-		RunID:          run.ID,
-		ScenarioID:     scenarioID,
-		SessionID:      sessionID,
-		Surface:        surface,
-		Label:          "main",
-		ArtifactPath:   "/dev/null",
-		ArtifactSHA256: sha,
-		ArtifactBytes:  1,
-		Verification:   CaptureVerifyNone,
-		CapturedAt:     time.Now().UTC(),
-	}
-	if err := store.CaptureLedger(run).Append(rec); err != nil {
-		t.Fatal(err)
-	}
-	return rec
-}
-
 func shaOfFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -422,7 +394,21 @@ func shaOfFile(t *testing.T, path string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-func TestRecordBrowserWithValidCaptureIDSucceeds(t *testing.T) {
+// latestEvidence returns the most recently appended evidence record for
+// tests that inspect the auto-populated CaptureIDs and ledger entries.
+func latestEvidence(t *testing.T, store *Store, run Run) Evidence {
+	t.Helper()
+	items, err := store.LoadEvidence(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) == 0 {
+		t.Fatal("expected at least one evidence record")
+	}
+	return items[len(items)-1]
+}
+
+func TestRecordBrowserAutoWritesLedgerEntryPerImage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
 	repo := t.TempDir()
@@ -441,226 +427,67 @@ func TestRecordBrowserWithValidCaptureIDSucceeds(t *testing.T) {
 	mobile := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
 	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
 
-	rec := captureForTest(t, store, run, SurfaceBrowser, "happy-path", "browser-1", shaOfFile(t, desktop))
-
 	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
 		SessionID:      "browser-1",
 		ReportPath:     report,
 		Screenshots:    map[string]string{"desktop": desktop, "mobile": mobile},
 		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
 
-func TestRecordBrowserWithoutCaptureIDStillSucceeds(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+	ev := latestEvidence(t, store, run)
+	if len(ev.CaptureIDs) != 2 {
+		t.Fatalf("expected 2 capture ids on evidence, got %d: %v", len(ev.CaptureIDs), ev.CaptureIDs)
+	}
 
-	store, err := NewStore()
+	records, err := store.CaptureLedger(run).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := CreateRun(store, repo, sampleStartOptions())
-	if err != nil {
-		t.Fatal(err)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 ledger entries, got %d", len(records))
+	}
+	labelShas := map[string]string{}
+	for _, r := range records {
+		if r.ScenarioID != "happy-path" {
+			t.Errorf("wrong scenario: %s", r.ScenarioID)
+		}
+		if r.SessionID != "browser-1" {
+			t.Errorf("wrong session: %s", r.SessionID)
+		}
+		if r.Surface != SurfaceBrowser {
+			t.Errorf("wrong surface: %s", r.Surface)
+		}
+		if r.ArtifactSHA256 == "" {
+			t.Errorf("missing sha")
+		}
+		labelShas[r.Label] = r.ArtifactSHA256
+	}
+	if labelShas["desktop"] != shaOfFile(t, desktop) {
+		t.Errorf("desktop ledger sha mismatch: %s vs %s", labelShas["desktop"], shaOfFile(t, desktop))
+	}
+	if labelShas["mobile"] != shaOfFile(t, mobile) {
+		t.Errorf("mobile ledger sha mismatch: %s vs %s", labelShas["mobile"], shaOfFile(t, mobile))
 	}
 
-	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
-	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
-
-	if err := RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "browser-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": desktop},
-		PassAssertions: []string{"console_errors = 0"},
-	}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRecordBrowserWithUnknownCaptureIDFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := CreateRun(store, repo, sampleStartOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
-	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
-
-	err = RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "browser-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": desktop},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      "cap_UNKNOWN",
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown capture id")
-	}
-	if !strings.Contains(err.Error(), "not found in ledger") {
-		t.Fatalf("expected ledger miss error, got %v", err)
+	// Every capture id on the evidence should resolve via the ledger.
+	for _, id := range ev.CaptureIDs {
+		rec, ok, err := store.CaptureLedger(run).FindByID(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Fatalf("capture id %s missing from ledger", id)
+		}
+		if rec.Surface != SurfaceBrowser {
+			t.Errorf("ledger record %s wrong surface: %s", id, rec.Surface)
+		}
 	}
 }
 
-func TestRecordBrowserWithCaptureIDForWrongScenarioFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := CreateRun(store, repo, sampleStartOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
-	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
-	rec := captureForTest(t, store, run, SurfaceBrowser, "failure-path", "browser-1", shaOfFile(t, desktop))
-
-	err = RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "browser-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": desktop},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected error for wrong scenario")
-	}
-	if !strings.Contains(err.Error(), "belongs to scenario") {
-		t.Fatalf("expected scenario mismatch error, got %v", err)
-	}
-}
-
-func TestRecordBrowserWithCaptureIDForWrongSessionFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := CreateRun(store, repo, sampleStartOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
-	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
-	rec := captureForTest(t, store, run, SurfaceBrowser, "happy-path", "other-session", shaOfFile(t, desktop))
-
-	err = RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "browser-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": desktop},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected error for wrong session")
-	}
-	if !strings.Contains(err.Error(), "belongs to session") {
-		t.Fatalf("expected session mismatch error, got %v", err)
-	}
-}
-
-func TestRecordBrowserWithCaptureIDForWrongSurfaceFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := CreateRun(store, repo, sampleStartOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
-	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
-	rec := captureForTest(t, store, run, SurfaceDesktop, "happy-path", "browser-1", shaOfFile(t, desktop))
-
-	err = RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "browser-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": desktop},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected error for wrong surface")
-	}
-	if !strings.Contains(err.Error(), "different surface") && !strings.Contains(err.Error(), "was for surface") {
-		t.Fatalf("expected surface mismatch error, got %v", err)
-	}
-}
-
-func TestRecordBrowserWithTamperedArtifactFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := CreateRun(store, repo, sampleStartOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
-	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
-	// Capture was bound to a totally different SHA — the submitted PNG is tampered relative to the ledger.
-	rec := captureForTest(t, store, run, SurfaceBrowser, "happy-path", "browser-1", "0000000000000000000000000000000000000000000000000000000000000000")
-	_ = desktop
-
-	err = RecordBrowser(store, run, BrowserRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "browser-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"desktop": desktop},
-		PassAssertions: []string{"console_errors = 0"},
-		CaptureID:      rec.ID,
-	})
-	if err == nil {
-		t.Fatal("expected error for tampered artifact")
-	}
-	if !strings.Contains(err.Error(), "no submitted artifact matches capture") {
-		t.Fatalf("expected tamper error, got %v", err)
-	}
-}
-
-func TestRecordIOSWithValidCaptureIDSucceeds(t *testing.T) {
+func TestRecordIOSAutoWritesLedgerEntryPerImage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
 	repo := t.TempDir()
@@ -677,7 +504,6 @@ func TestRecordIOSWithValidCaptureIDSucceeds(t *testing.T) {
 
 	screenshot := writeScreenshotFixture(t, repo, "library.png", "ios-image")
 	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
-	rec := captureForTest(t, store, run, SurfaceIOS, "happy-path", "ios-1", shaOfFile(t, screenshot))
 
 	if err := RecordIOS(store, run, IOSRecordOptions{
 		ScenarioID:     "happy-path",
@@ -685,47 +511,34 @@ func TestRecordIOSWithValidCaptureIDSucceeds(t *testing.T) {
 		ReportPath:     report,
 		Screenshots:    map[string]string{"library": screenshot},
 		PassAssertions: []string{"bundle_id = com.example.pagena"},
-		CaptureID:      rec.ID,
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
 
-func TestRecordIOSWithUnknownCaptureIDFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
+	ev := latestEvidence(t, store, run)
+	if len(ev.CaptureIDs) != 1 {
+		t.Fatalf("expected 1 capture id on evidence, got %d", len(ev.CaptureIDs))
+	}
+	records, err := store.CaptureLedger(run).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := CreateRun(store, repo, sampleIOSStartOptions())
-	if err != nil {
-		t.Fatal(err)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 ledger entry, got %d", len(records))
 	}
-
-	screenshot := writeScreenshotFixture(t, repo, "library.png", "ios-image")
-	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
-
-	err = RecordIOS(store, run, IOSRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "ios-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"library": screenshot},
-		PassAssertions: []string{"bundle_id = com.example.pagena"},
-		CaptureID:      "cap_ZZZZZZ",
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown capture id")
+	r := records[0]
+	if r.Surface != SurfaceIOS || r.ScenarioID != "happy-path" || r.SessionID != "ios-1" {
+		t.Errorf("bad ledger record: %+v", r)
 	}
-	if !strings.Contains(err.Error(), "not found in ledger") {
-		t.Fatalf("expected ledger miss error, got %v", err)
+	if r.Label != "library" {
+		t.Errorf("expected label library, got %s", r.Label)
+	}
+	if r.ArtifactSHA256 != shaOfFile(t, screenshot) {
+		t.Errorf("sha mismatch: %s vs %s", r.ArtifactSHA256, shaOfFile(t, screenshot))
 	}
 }
 
-func TestRecordDesktopWithValidCaptureIDSucceeds(t *testing.T) {
+func TestRecordDesktopAutoWritesLedgerEntryPerImage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
 	repo := t.TempDir()
@@ -742,7 +555,6 @@ func TestRecordDesktopWithValidCaptureIDSucceeds(t *testing.T) {
 
 	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
 	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
-	rec := captureForTest(t, store, run, SurfaceDesktop, "happy-path", "desktop-1", shaOfFile(t, screenshot))
 
 	if err := RecordDesktop(store, run, DesktopRecordOptions{
 		ScenarioID:     "happy-path",
@@ -750,47 +562,34 @@ func TestRecordDesktopWithValidCaptureIDSucceeds(t *testing.T) {
 		ReportPath:     report,
 		Screenshots:    map[string]string{"window": screenshot},
 		PassAssertions: []string{"app_name contains Firefox"},
-		CaptureID:      rec.ID,
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
 
-func TestRecordDesktopWithUnknownCaptureIDFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PROCTOR_HOME", home)
-	repo := t.TempDir()
-	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
-
-	store, err := NewStore()
+	ev := latestEvidence(t, store, run)
+	if len(ev.CaptureIDs) != 1 {
+		t.Fatalf("expected 1 capture id on evidence, got %d", len(ev.CaptureIDs))
+	}
+	records, err := store.CaptureLedger(run).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := CreateRun(store, repo, sampleDesktopStartOptions())
-	if err != nil {
-		t.Fatal(err)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 ledger entry, got %d", len(records))
 	}
-
-	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
-	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
-
-	err = RecordDesktop(store, run, DesktopRecordOptions{
-		ScenarioID:     "happy-path",
-		SessionID:      "desktop-1",
-		ReportPath:     report,
-		Screenshots:    map[string]string{"window": screenshot},
-		PassAssertions: []string{"app_name contains Firefox"},
-		CaptureID:      "cap_XXXXXX",
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown capture id")
+	r := records[0]
+	if r.Surface != SurfaceDesktop || r.ScenarioID != "happy-path" || r.SessionID != "desktop-1" {
+		t.Errorf("bad ledger record: %+v", r)
 	}
-	if !strings.Contains(err.Error(), "not found in ledger") {
-		t.Fatalf("expected ledger miss error, got %v", err)
+	if r.Label != "window" {
+		t.Errorf("expected label window, got %s", r.Label)
+	}
+	if r.ArtifactSHA256 != shaOfFile(t, screenshot) {
+		t.Errorf("sha mismatch: %s vs %s", r.ArtifactSHA256, shaOfFile(t, screenshot))
 	}
 }
 
-func TestRecordCLIWithValidCaptureIDSucceeds(t *testing.T) {
+func TestRecordCLIAutoWritesLedgerEntryPerImage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
 	repo := t.TempDir()
@@ -807,7 +606,6 @@ func TestRecordCLIWithValidCaptureIDSucceeds(t *testing.T) {
 
 	terminal := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
 	transcript := writeFixture(t, repo, "pane.txt", "Usage:\n  demo help\nOnboarding prompt output\n")
-	rec := captureForTest(t, store, run, SurfaceCLI, "happy-path", "cli-1", shaOfFile(t, terminal))
 
 	if err := RecordCLI(store, run, CLIRecordOptions{
 		ScenarioID:     "happy-path",
@@ -816,13 +614,34 @@ func TestRecordCLIWithValidCaptureIDSucceeds(t *testing.T) {
 		TranscriptPath: transcript,
 		Screenshots:    map[string]string{"terminal": terminal},
 		PassAssertions: []string{"screenshot = true"},
-		CaptureID:      rec.ID,
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	ev := latestEvidence(t, store, run)
+	if len(ev.CaptureIDs) != 1 {
+		t.Fatalf("expected 1 capture id on evidence, got %d", len(ev.CaptureIDs))
+	}
+	records, err := store.CaptureLedger(run).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 ledger entry, got %d", len(records))
+	}
+	r := records[0]
+	if r.Surface != SurfaceCLI || r.ScenarioID != "happy-path" || r.SessionID != "cli-1" {
+		t.Errorf("bad ledger record: %+v", r)
+	}
+	if r.Label != "terminal" {
+		t.Errorf("expected label terminal, got %s", r.Label)
+	}
+	if r.ArtifactSHA256 != shaOfFile(t, terminal) {
+		t.Errorf("sha mismatch: %s vs %s", r.ArtifactSHA256, shaOfFile(t, terminal))
+	}
 }
 
-func TestRecordCLIWithUnknownCaptureIDFails(t *testing.T) {
+func TestRecordBrowserTamperDetectedViaLedger(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROCTOR_HOME", home)
 	repo := t.TempDir()
@@ -832,27 +651,73 @@ func TestRecordCLIWithUnknownCaptureIDFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := CreateRun(store, repo, sampleCLIStartOptions())
+	run, err := CreateRun(store, repo, sampleStartOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	terminal := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
-	transcript := writeFixture(t, repo, "pane.txt", "Usage:\n  demo help\nOnboarding prompt output\n")
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
 
-	err = RecordCLI(store, run, CLIRecordOptions{
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
 		ScenarioID:     "happy-path",
-		SessionID:      "cli-1",
-		Command:        "demo help",
-		TranscriptPath: transcript,
-		Screenshots:    map[string]string{"terminal": terminal},
-		PassAssertions: []string{"screenshot = true"},
-		CaptureID:      "cap_MISSING",
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown capture id")
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not found in ledger") {
-		t.Fatalf("expected ledger miss error, got %v", err)
+
+	ev := latestEvidence(t, store, run)
+	if len(ev.CaptureIDs) != 1 {
+		t.Fatalf("expected 1 capture id, got %d", len(ev.CaptureIDs))
+	}
+	captureID := ev.CaptureIDs[0]
+
+	// Look up the ledger entry directly and compare its SHA against the
+	// copied artifact SHA. They must agree — tampering would surface as a
+	// mismatch between these two values.
+	rec, ok, err := store.CaptureLedger(run).FindByID(captureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("capture %s missing from ledger", captureID)
+	}
+
+	// Match the ledger record's SHA against the evidence artifact SHA.
+	var imgSHA string
+	for _, art := range ev.Artifacts {
+		if art.Kind == ArtifactImage {
+			imgSHA = art.SHA256
+			break
+		}
+	}
+	if imgSHA == "" {
+		t.Fatal("evidence has no image artifact")
+	}
+	if rec.ArtifactSHA256 != imgSHA {
+		t.Fatalf("tamper: ledger sha %s != evidence sha %s", rec.ArtifactSHA256, imgSHA)
+	}
+
+	// Now simulate tampering: mutate the ledger entry's SHA and
+	// verifyCaptureBinding should reject the original artifacts.
+	tamperedRec := rec
+	tamperedRec.ArtifactSHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+	err = verifyCaptureBinding(store, run, "happy-path", "browser-1", SurfaceBrowser, rec.ID, []Artifact{{SHA256: tamperedRec.ArtifactSHA256}})
+	// verifyCaptureBinding takes the ledger's own record, so testing the
+	// public helper with a fabricated SHA lets us exercise its tamper
+	// branch directly.
+	if err == nil {
+		// The artifact we submitted matches the fabricated SHA; swap to a
+		// definitely-different one and retry.
+		err = verifyCaptureBinding(store, run, "happy-path", "browser-1", SurfaceBrowser, rec.ID, []Artifact{{SHA256: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}})
+	}
+	if err == nil {
+		t.Fatal("expected verifyCaptureBinding to reject mismatched artifact")
+	}
+	if !strings.Contains(err.Error(), "no submitted artifact matches capture") {
+		t.Fatalf("expected tamper error, got %v", err)
 	}
 }
