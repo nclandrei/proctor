@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,133 @@ import (
 
 	"github.com/nclandrei/proctor/internal/proctor"
 )
+
+// integrationFakeCaptureBackend writes a deterministic PNG so the capture
+// engine can produce a ledger entry without contacting real browsers or
+// simulators during integration tests.
+type integrationFakeCaptureBackend struct {
+	content      []byte
+	verification proctor.CaptureVerificationMode
+}
+
+func (b *integrationFakeCaptureBackend) Capture(ctx context.Context, dest proctor.CaptureDestination, opts proctor.CaptureOptions) (proctor.CaptureResult, error) {
+	if err := os.WriteFile(dest.ArtifactPath, b.content, 0o644); err != nil {
+		return proctor.CaptureResult{}, err
+	}
+	verification := b.verification
+	if verification == "" {
+		verification = proctor.CaptureVerifyNone
+	}
+	return proctor.CaptureResult{
+		Target:       opts.Target,
+		Verification: verification,
+	}, nil
+}
+
+func integrationScreenshotBytes() []byte {
+	minSize := 10*1024 + 1
+	buf := make([]byte, minSize)
+	copy(buf, []byte("png-capture-"))
+	for i := len("png-capture-"); i < minSize; i++ {
+		buf[i] = byte(i & 0xff)
+	}
+	return buf
+}
+
+func TestCaptureThenRecordBrowserRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repoRoot := t.TempDir()
+	initIntegrationGitRepo(t, repoRoot, "https://github.com/nclandrei/proctor-capture-roundtrip")
+
+	store, err := proctor.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := proctor.CreateRun(store, repoRoot, proctor.StartOptions{
+		Feature:        "capture roundtrip",
+		BrowserURL:     "http://127.0.0.1:3000/login",
+		CurlMode:       "skip",
+		CurlSkipReason: "capture roundtrip test only",
+		HappyPath:      "valid login redirects",
+		FailurePath:    "invalid login shows error",
+		EdgeCaseInputs: []string{
+			"validation and malformed input=N/A: covered elsewhere",
+			"empty or missing input=N/A: covered elsewhere",
+			"retry or double-submit=N/A: covered elsewhere",
+			"loading, latency, and race conditions=N/A: covered elsewhere",
+			"network or server failure=N/A: covered elsewhere",
+			"auth and session state=N/A: covered elsewhere",
+			"refresh, back-navigation, and state persistence=N/A: covered elsewhere",
+			"mobile or responsive behavior=N/A: covered elsewhere",
+			"accessibility and keyboard behavior=N/A: covered elsewhere",
+			"any feature-specific risks=N/A: covered elsewhere",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Swap in a fake capture backend for browser and restore afterwards.
+	backend := &integrationFakeCaptureBackend{
+		content:      integrationScreenshotBytes(),
+		verification: proctor.CaptureVerifyMeta,
+	}
+	proctor.RegisterCaptureBackend(proctor.SurfaceBrowser, backend)
+	t.Cleanup(func() {
+		proctor.RegisterCaptureBackend(proctor.SurfaceBrowser, integrationRestoreStub{surface: proctor.SurfaceBrowser})
+	})
+
+	rec, err := proctor.Capture(context.Background(), store, run, proctor.CaptureOptions{
+		Surface:    proctor.SurfaceBrowser,
+		ScenarioID: "happy-path",
+		SessionID:  "browser-roundtrip-1",
+		Label:      "desktop",
+		Target:     map[string]string{"url": "http://127.0.0.1:3000/login"},
+	})
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if !strings.HasPrefix(rec.ID, "cap_") {
+		t.Fatalf("expected capture id, got %s", rec.ID)
+	}
+	if _, err := os.Stat(rec.ArtifactPath); err != nil {
+		t.Fatalf("expected captured artifact on disk: %v", err)
+	}
+
+	report := writeIntegrationFixture(t, repoRoot, "report.json", `{
+  "desktop": {"title": "Login", "finalUrl": "http://127.0.0.1:3000/dashboard", "issues": {"consoleErrors": 0, "consoleWarnings": 0, "pageErrors": 0, "failedRequests": 0, "httpErrors": 0}},
+  "mobile":  {"title": "Login", "finalUrl": "http://127.0.0.1:3000/dashboard", "issues": {"consoleErrors": 0, "consoleWarnings": 0, "pageErrors": 0, "failedRequests": 0, "httpErrors": 0}}
+}`)
+
+	if err := proctor.RecordBrowser(store, run, proctor.BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-roundtrip-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": rec.ArtifactPath},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      rec.ID,
+	}); err != nil {
+		t.Fatalf("record browser after capture: %v", err)
+	}
+}
+
+// integrationRestoreStub is a minimal stub used to restore the capture map
+// after an integration test swaps in a fake backend. It mirrors the private
+// stub in internal/proctor.
+type integrationRestoreStub struct {
+	surface string
+}
+
+func (s integrationRestoreStub) Capture(ctx context.Context, dest proctor.CaptureDestination, opts proctor.CaptureOptions) (proctor.CaptureResult, error) {
+	return proctor.CaptureResult{}, &integrationStubError{surface: s.surface}
+}
+
+type integrationStubError struct{ surface string }
+
+func (e *integrationStubError) Error() string {
+	return "capture backend for " + e.surface + " not yet implemented"
+}
 
 func TestCLIFlowViaGoRun(t *testing.T) {
 	proctorRoot, err := os.Getwd()

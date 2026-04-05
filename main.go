@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -59,6 +60,8 @@ func run(args []string) error {
 		return runStatus(store, cwd)
 	case "record":
 		return runRecord(store, cwd, args[1:])
+	case "capture":
+		return runCapture(store, cwd, args[1:])
 	case "done":
 		return runDone(store, cwd)
 	case "report":
@@ -192,6 +195,7 @@ func runRecordBrowser(store *proctor.Store, run proctor.Run, args []string) erro
 	fs.StringVar(&opts.SessionID, "session", "", "")
 	fs.StringVar(&opts.Tool, "tool", "agent-browser", "")
 	fs.StringVar(&opts.ReportPath, "report", "", "")
+	fs.StringVar(&opts.CaptureID, "capture-id", "", "")
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
@@ -229,6 +233,7 @@ func runRecordIOS(store *proctor.Store, run proctor.Run, args []string) error {
 	fs.StringVar(&opts.SessionID, "session", "", "")
 	fs.StringVar(&opts.Tool, "tool", "ios-simulator", "")
 	fs.StringVar(&opts.ReportPath, "report", "", "")
+	fs.StringVar(&opts.CaptureID, "capture-id", "", "")
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
@@ -292,6 +297,7 @@ func runRecordCLI(store *proctor.Store, run proctor.Run, args []string) error {
 	fs.StringVar(&opts.Command, "command", "", "")
 	fs.StringVar(&opts.TranscriptPath, "transcript", "", "")
 	fs.StringVar(&exitCodeText, "exit-code", "", "")
+	fs.StringVar(&opts.CaptureID, "capture-id", "", "")
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
@@ -336,6 +342,7 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 	fs.StringVar(&opts.SessionID, "session", "", "")
 	fs.StringVar(&opts.Tool, "tool", "peekaboo", "")
 	fs.StringVar(&opts.ReportPath, "report", "", "")
+	fs.StringVar(&opts.CaptureID, "capture-id", "", "")
 	fs.Var(&screenshots, "screenshot", "")
 	fs.Var(&passAssertions, "assert", "")
 	fs.Var(&failAssertions, "fail-assert", "")
@@ -358,6 +365,144 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 		return err
 	}
 	fmt.Printf("Recorded desktop evidence for %s\n", opts.ScenarioID)
+	return nil
+}
+
+func runCapture(store *proctor.Store, cwd string, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: proctor capture <browser|ios|desktop|cli> [flags]")
+	}
+	switch args[0] {
+	case "browser", "ios", "desktop", "cli":
+	default:
+		return fmt.Errorf("unknown capture surface: %s", args[0])
+	}
+	run, err := store.LoadRun(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "browser":
+		return runCaptureBrowser(store, run, args[1:])
+	case "ios":
+		return runCaptureIOS(store, run, args[1:])
+	case "desktop":
+		return runCaptureDesktop(store, run, args[1:])
+	case "cli":
+		return runCaptureCLI(store, run, args[1:])
+	}
+	return nil
+}
+
+func runCaptureBrowser(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("capture browser", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	opts := proctor.CaptureOptions{Surface: proctor.SurfaceBrowser, Target: map[string]string{}}
+	var url, viewport, windowSize string
+	var waitMS int
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Label, "label", "desktop", "")
+	fs.StringVar(&url, "url", "", "")
+	fs.StringVar(&viewport, "viewport", "", "")
+	fs.StringVar(&windowSize, "window-size", "", "")
+	fs.IntVar(&waitMS, "wait-ms", 0, "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(url) != "" {
+		opts.Target["url"] = strings.TrimSpace(url)
+	}
+	if strings.TrimSpace(viewport) != "" {
+		opts.Target["viewport"] = strings.TrimSpace(viewport)
+	}
+	if strings.TrimSpace(windowSize) != "" {
+		opts.Target["window_size"] = strings.TrimSpace(windowSize)
+	}
+	if waitMS > 0 {
+		opts.Target["wait_ms"] = strconv.Itoa(waitMS)
+	}
+	return dispatchCapture(store, run, opts)
+}
+
+func runCaptureIOS(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("capture ios", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	opts := proctor.CaptureOptions{Surface: proctor.SurfaceIOS, Target: map[string]string{}}
+	var simulator, bundleID string
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Label, "label", "main", "")
+	fs.StringVar(&simulator, "simulator", "", "")
+	fs.StringVar(&bundleID, "bundle-id", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(simulator) != "" {
+		opts.Target["simulator"] = strings.TrimSpace(simulator)
+	}
+	if strings.TrimSpace(bundleID) != "" {
+		opts.Target["bundle_id"] = strings.TrimSpace(bundleID)
+	}
+	return dispatchCapture(store, run, opts)
+}
+
+func runCaptureDesktop(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("capture desktop", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	opts := proctor.CaptureOptions{Surface: proctor.SurfaceDesktop, Target: map[string]string{}}
+	var windowTitle, appName string
+	var pid int
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Label, "label", "window", "")
+	fs.StringVar(&windowTitle, "window-title", "", "")
+	fs.StringVar(&appName, "app", "", "")
+	fs.IntVar(&pid, "pid", 0, "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(windowTitle) != "" {
+		opts.Target["window_title"] = strings.TrimSpace(windowTitle)
+	}
+	if strings.TrimSpace(appName) != "" {
+		opts.Target["app"] = strings.TrimSpace(appName)
+	}
+	if pid > 0 {
+		opts.Target["pid"] = strconv.Itoa(pid)
+	}
+	return dispatchCapture(store, run, opts)
+}
+
+func runCaptureCLI(store *proctor.Store, run proctor.Run, args []string) error {
+	fs := flag.NewFlagSet("capture cli", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	opts := proctor.CaptureOptions{Surface: proctor.SurfaceCLI, Target: map[string]string{}}
+	var tmuxTarget string
+	fs.StringVar(&opts.ScenarioID, "scenario", "", "")
+	fs.StringVar(&opts.SessionID, "session", "", "")
+	fs.StringVar(&opts.Label, "label", "terminal", "")
+	fs.StringVar(&tmuxTarget, "tmux-target", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(tmuxTarget) != "" {
+		opts.Target["tmux_target"] = strings.TrimSpace(tmuxTarget)
+	}
+	return dispatchCapture(store, run, opts)
+}
+
+func dispatchCapture(store *proctor.Store, run proctor.Run, opts proctor.CaptureOptions) error {
+	rec, err := proctor.Capture(context.Background(), store, run, opts)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("captured: %s\n", rec.ID)
+	fmt.Printf("artifact: %s\n", rec.ArtifactPath)
+	fmt.Printf("sha256: %s\n", rec.ArtifactSHA256)
+	if rec.TranscriptPath != "" {
+		fmt.Printf("transcript: %s\n", rec.TranscriptPath)
+	}
 	return nil
 }
 

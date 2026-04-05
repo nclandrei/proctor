@@ -309,6 +309,7 @@ type BrowserRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
+	CaptureID        string
 }
 
 type IOSRecordOptions struct {
@@ -320,6 +321,7 @@ type IOSRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
+	CaptureID        string
 }
 
 type DesktopRecordOptions struct {
@@ -331,6 +333,7 @@ type DesktopRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
+	CaptureID        string
 }
 
 type CurlRecordOptions struct {
@@ -351,6 +354,7 @@ type CLIRecordOptions struct {
 	PassAssertions   []string
 	FailAssertions   []string
 	MaxScreenshotAge time.Duration
+	CaptureID        string
 }
 
 type Evaluation struct {

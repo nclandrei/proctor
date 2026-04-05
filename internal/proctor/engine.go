@@ -246,6 +246,11 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
 	}
+	if opts.CaptureID != "" {
+		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceBrowser, opts.CaptureID, artifacts); err != nil {
+			return err
+		}
+	}
 
 	reportData, err := ParseBrowserReport(opts.ReportPath)
 	if err != nil {
@@ -339,6 +344,11 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	}
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
+	}
+	if opts.CaptureID != "" {
+		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceIOS, opts.CaptureID, artifacts); err != nil {
+			return err
+		}
 	}
 
 	reportData, err := ParseIOSReport(opts.ReportPath)
@@ -509,6 +519,11 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
 	}
+	if opts.CaptureID != "" {
+		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceCLI, opts.CaptureID, artifacts); err != nil {
+			return err
+		}
+	}
 
 	transcriptBytes, err := os.ReadFile(opts.TranscriptPath)
 	if err != nil {
@@ -614,6 +629,11 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	}
 	if err := detectDuplicateScreenshots(store, run, scenario.ID, artifacts); err != nil {
 		return err
+	}
+	if opts.CaptureID != "" {
+		if err := verifyCaptureBinding(store, run, scenario.ID, opts.SessionID, SurfaceDesktop, opts.CaptureID, artifacts); err != nil {
+			return err
+		}
 	}
 
 	reportData, err := ParseDesktopReport(opts.ReportPath)

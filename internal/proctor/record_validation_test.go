@@ -383,3 +383,481 @@ func TestCompleteRunRejectsDuplicateScreenshots(t *testing.T) {
 		t.Fatalf("expected run status %q, got %q", StatusBlocked, reloaded.Status)
 	}
 }
+
+// captureForTest appends a CaptureRecord for the given surface/scenario/session
+// with the specified SHA and returns the record. It bypasses the backend
+// dispatcher so tests can target arbitrary SHAs without re-writing files.
+func captureForTest(t *testing.T, store *Store, run Run, surface, scenarioID, sessionID, sha string) CaptureRecord {
+	t.Helper()
+	id, err := newCaptureID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce, err := newCaptureNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := CaptureRecord{
+		ID:             id,
+		RunID:          run.ID,
+		ScenarioID:     scenarioID,
+		SessionID:      sessionID,
+		Surface:        surface,
+		Label:          "main",
+		Nonce:          nonce,
+		ArtifactPath:   "/dev/null",
+		ArtifactSHA256: sha,
+		ArtifactBytes:  1,
+		Verification:   CaptureVerifyNone,
+		CapturedAt:     time.Now().UTC(),
+	}
+	if err := store.CaptureLedger(run).Append(rec); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+func shaOfFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum)
+}
+
+func TestRecordBrowserWithValidCaptureIDSucceeds(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	mobile := writeScreenshotFixture(t, repo, "mobile.png", "mobile-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+
+	rec := captureForTest(t, store, run, SurfaceBrowser, "happy-path", "browser-1", shaOfFile(t, desktop))
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop, "mobile": mobile},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      rec.ID,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecordBrowserWithoutCaptureIDStillSucceeds(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+
+	if err := RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecordBrowserWithUnknownCaptureIDFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      "cap_UNKNOWN",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown capture id")
+	}
+	if !strings.Contains(err.Error(), "not found in ledger") {
+		t.Fatalf("expected ledger miss error, got %v", err)
+	}
+}
+
+func TestRecordBrowserWithCaptureIDForWrongScenarioFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+	rec := captureForTest(t, store, run, SurfaceBrowser, "failure-path", "browser-1", shaOfFile(t, desktop))
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      rec.ID,
+	})
+	if err == nil {
+		t.Fatal("expected error for wrong scenario")
+	}
+	if !strings.Contains(err.Error(), "belongs to scenario") {
+		t.Fatalf("expected scenario mismatch error, got %v", err)
+	}
+}
+
+func TestRecordBrowserWithCaptureIDForWrongSessionFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+	rec := captureForTest(t, store, run, SurfaceBrowser, "happy-path", "other-session", shaOfFile(t, desktop))
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      rec.ID,
+	})
+	if err == nil {
+		t.Fatal("expected error for wrong session")
+	}
+	if !strings.Contains(err.Error(), "belongs to session") {
+		t.Fatalf("expected session mismatch error, got %v", err)
+	}
+}
+
+func TestRecordBrowserWithCaptureIDForWrongSurfaceFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+	rec := captureForTest(t, store, run, SurfaceDesktop, "happy-path", "browser-1", shaOfFile(t, desktop))
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      rec.ID,
+	})
+	if err == nil {
+		t.Fatal("expected error for wrong surface")
+	}
+	if !strings.Contains(err.Error(), "different surface") && !strings.Contains(err.Error(), "was for surface") {
+		t.Fatalf("expected surface mismatch error, got %v", err)
+	}
+}
+
+func TestRecordBrowserWithTamperedArtifactFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := writeScreenshotFixture(t, repo, "desktop.png", "desktop-image")
+	report := writeFixture(t, repo, "report.json", sampleBrowserReport("http://127.0.0.1:3000/login", 0, 0, 0, 0))
+	// Capture was bound to a totally different SHA — the submitted PNG is tampered relative to the ledger.
+	rec := captureForTest(t, store, run, SurfaceBrowser, "happy-path", "browser-1", "0000000000000000000000000000000000000000000000000000000000000000")
+	_ = desktop
+
+	err = RecordBrowser(store, run, BrowserRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "browser-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"desktop": desktop},
+		PassAssertions: []string{"console_errors = 0"},
+		CaptureID:      rec.ID,
+	})
+	if err == nil {
+		t.Fatal("expected error for tampered artifact")
+	}
+	if !strings.Contains(err.Error(), "no submitted artifact matches capture") {
+		t.Fatalf("expected tamper error, got %v", err)
+	}
+}
+
+func TestRecordIOSWithValidCaptureIDSucceeds(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleIOSStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "library.png", "ios-image")
+	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
+	rec := captureForTest(t, store, run, SurfaceIOS, "happy-path", "ios-1", shaOfFile(t, screenshot))
+
+	if err := RecordIOS(store, run, IOSRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "ios-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"library": screenshot},
+		PassAssertions: []string{"bundle_id = com.example.pagena"},
+		CaptureID:      rec.ID,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecordIOSWithUnknownCaptureIDFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleIOSStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "library.png", "ios-image")
+	report := writeFixture(t, repo, "ios-report.json", sampleIOSReport("com.example.pagena", "Library", "foreground", "iPhone 16 Pro", "iOS 18.2", 0, 0, 0))
+
+	err = RecordIOS(store, run, IOSRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "ios-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"library": screenshot},
+		PassAssertions: []string{"bundle_id = com.example.pagena"},
+		CaptureID:      "cap_ZZZZZZ",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown capture id")
+	}
+	if !strings.Contains(err.Error(), "not found in ledger") {
+		t.Fatalf("expected ledger miss error, got %v", err)
+	}
+}
+
+func TestRecordDesktopWithValidCaptureIDSucceeds(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleDesktopStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
+	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
+	rec := captureForTest(t, store, run, SurfaceDesktop, "happy-path", "desktop-1", shaOfFile(t, screenshot))
+
+	if err := RecordDesktop(store, run, DesktopRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "desktop-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"window": screenshot},
+		PassAssertions: []string{"app_name contains Firefox"},
+		CaptureID:      rec.ID,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecordDesktopWithUnknownCaptureIDFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleDesktopStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenshot := writeScreenshotFixture(t, repo, "window.png", "window-image")
+	report := writeFixture(t, repo, "desktop-report.json", sampleDesktopReport("Firefox", "org.mozilla.firefox", "running", "Bookmark Manager", 0, 0))
+
+	err = RecordDesktop(store, run, DesktopRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "desktop-1",
+		ReportPath:     report,
+		Screenshots:    map[string]string{"window": screenshot},
+		PassAssertions: []string{"app_name contains Firefox"},
+		CaptureID:      "cap_XXXXXX",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown capture id")
+	}
+	if !strings.Contains(err.Error(), "not found in ledger") {
+		t.Fatalf("expected ledger miss error, got %v", err)
+	}
+}
+
+func TestRecordCLIWithValidCaptureIDSucceeds(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleCLIStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	terminal := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
+	transcript := writeFixture(t, repo, "pane.txt", "Usage:\n  demo help\nOnboarding prompt output\n")
+	rec := captureForTest(t, store, run, SurfaceCLI, "happy-path", "cli-1", shaOfFile(t, terminal))
+
+	if err := RecordCLI(store, run, CLIRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "cli-1",
+		Command:        "demo help",
+		TranscriptPath: transcript,
+		Screenshots:    map[string]string{"terminal": terminal},
+		PassAssertions: []string{"screenshot = true"},
+		CaptureID:      rec.ID,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecordCLIWithUnknownCaptureIDFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROCTOR_HOME", home)
+	repo := t.TempDir()
+	initGitRepo(t, repo, "https://github.com/nclandrei/proctor-test")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := CreateRun(store, repo, sampleCLIStartOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	terminal := writeScreenshotFixture(t, repo, "terminal.png", "terminal-image")
+	transcript := writeFixture(t, repo, "pane.txt", "Usage:\n  demo help\nOnboarding prompt output\n")
+
+	err = RecordCLI(store, run, CLIRecordOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "cli-1",
+		Command:        "demo help",
+		TranscriptPath: transcript,
+		Screenshots:    map[string]string{"terminal": terminal},
+		PassAssertions: []string{"screenshot = true"},
+		CaptureID:      "cap_MISSING",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown capture id")
+	}
+	if !strings.Contains(err.Error(), "not found in ledger") {
+		t.Fatalf("expected ledger miss error, got %v", err)
+	}
+}

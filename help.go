@@ -41,6 +41,31 @@ func commandHelp(args []string) (string, bool, error) {
 		if wantsHelp(args[1:]) {
 			return reportHelpText(), true, nil
 		}
+	case "capture":
+		if len(args) == 1 {
+			return captureHelpText(), true, nil
+		}
+		switch args[1] {
+		case "browser":
+			if wantsHelp(args[2:]) {
+				return captureBrowserHelpText(), true, nil
+			}
+		case "ios":
+			if wantsHelp(args[2:]) {
+				return captureIOSHelpText(), true, nil
+			}
+		case "desktop":
+			if wantsHelp(args[2:]) {
+				return captureDesktopHelpText(), true, nil
+			}
+		case "cli":
+			if wantsHelp(args[2:]) {
+				return captureCLIHelpText(), true, nil
+			}
+		}
+		if wantsHelp(args[1:]) {
+			return captureHelpText(), true, nil
+		}
 	case "record":
 		if len(args) == 1 {
 			return recordHelpText(), true, nil
@@ -89,6 +114,22 @@ func topicHelp(args []string) (string, error) {
 		return doneHelpText(), nil
 	case "report":
 		return reportHelpText(), nil
+	case "capture":
+		if len(args) == 1 {
+			return captureHelpText(), nil
+		}
+		switch args[1] {
+		case "browser":
+			return captureBrowserHelpText(), nil
+		case "ios":
+			return captureIOSHelpText(), nil
+		case "desktop":
+			return captureDesktopHelpText(), nil
+		case "cli":
+			return captureCLIHelpText(), nil
+		default:
+			return "", fmt.Errorf("unknown help topic: capture %s", args[1])
+		}
 	case "record":
 		if len(args) == 1 {
 			return recordHelpText(), nil
@@ -1018,6 +1059,164 @@ If the contract is incomplete, proctor done exits non-zero and prints what is
 still missing. This is the command the agent should treat as the real
 definition of done. When it fails, it also prints platform-specific local
 capture recommendations based on tools found on PATH.
+`
+}
+
+func captureHelpText() string {
+	return `proctor capture - take screenshots proctor can bind to evidence
+
+Usage:
+  proctor capture browser [flags]
+  proctor capture ios [flags]
+  proctor capture desktop [flags]
+  proctor capture cli [flags]
+
+Use:
+  proctor capture browser --help
+  proctor capture ios --help
+  proctor capture desktop --help
+  proctor capture cli --help
+
+Why capture:
+  - proctor takes the screenshot itself, not the agent
+  - the capture is logged to a per-run ledger (captures.jsonl) with a SHA
+  - each capture also plants a short nonce on the target so pixels can be
+    cross-checked later
+  - proctor record --capture-id binds the submitted evidence back to the ledger
+    entry, so agents cannot substitute PNGs proctor did not take
+
+Common flags for every surface:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable session label used on the matching record call
+  --label LABEL              Label for the screenshot (default varies by surface)
+
+Output:
+  captured: cap_XK7Q2M
+  artifact: /abs/path/.proctor/.../capture-cap_XK7Q2M-desktop.png
+  sha256:   abc123...
+
+Pass the captured id to proctor record with --capture-id. Only captures taken
+during the active run's session can be bound to evidence for that session.
+`
+}
+
+func captureBrowserHelpText() string {
+	return `proctor capture browser - take a browser screenshot proctor can bind to evidence
+
+Usage:
+  proctor capture browser \
+    --scenario ID \
+    --session SESSION \
+    --url URL \
+    [--label LABEL] \
+    [--viewport WIDTHxHEIGHT] \
+    [--wait-ms MILLIS]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable browser session id used on proctor record browser
+  --url URL                  Target URL the browser should load
+
+Optional:
+  --label LABEL              Label for the screenshot (default: desktop)
+  --viewport WIDTHxHEIGHT    Viewport size, e.g. 1440x900 or 390x844 for mobile
+  --wait-ms MILLIS           Extra settle time in milliseconds after navigation
+
+Example:
+  proctor capture browser \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --url http://127.0.0.1:3000/dashboard \
+    --viewport 1440x900 \
+    --label desktop
+`
+}
+
+func captureIOSHelpText() string {
+	return `proctor capture ios - take a simulator screenshot proctor can bind to evidence
+
+Usage:
+  proctor capture ios \
+    --scenario ID \
+    --session SESSION \
+    [--label LABEL] \
+    [--simulator NAME] \
+    [--bundle-id ID]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable simulator session id used on proctor record ios
+
+Optional:
+  --label LABEL              Label for the screenshot (default: main)
+  --simulator NAME           Simulator UDID or display label to pin the device
+  --bundle-id ID             Bundle id expected to be foregrounded on the simulator
+
+Example:
+  proctor capture ios \
+    --scenario happy-path \
+    --session pagena-library-1 \
+    --simulator "iPhone 16 Pro" \
+    --bundle-id com.example.pagena \
+    --label library
+`
+}
+
+func captureDesktopHelpText() string {
+	return `proctor capture desktop - take a desktop window screenshot proctor can bind to evidence
+
+Usage:
+  proctor capture desktop \
+    --scenario ID \
+    --session SESSION \
+    [--label LABEL] \
+    [--window-title TEXT] \
+    [--app APPNAME] \
+    [--pid N]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable desktop session id used on proctor record desktop
+
+Optional:
+  --label LABEL              Label for the screenshot (default: window)
+  --window-title TEXT        Window title substring for the backend to match
+  --app APPNAME              Application name for the backend to match
+  --pid N                    Process id for the backend to match
+
+Example:
+  proctor capture desktop \
+    --scenario happy-path \
+    --session firefox-desktop-1 \
+    --app Firefox \
+    --window-title "Bookmark Manager"
+`
+}
+
+func captureCLIHelpText() string {
+	return `proctor capture cli - capture a terminal pane proctor can bind to evidence
+
+Usage:
+  proctor capture cli \
+    --scenario ID \
+    --session SESSION \
+    [--label LABEL] \
+    [--tmux-target TARGET]
+
+Required:
+  --scenario ID              Scenario id from contract.md or proctor status
+  --session SESSION          Stable terminal session id used on proctor record cli
+
+Optional:
+  --label LABEL              Label for the screenshot (default: terminal)
+  --tmux-target TARGET       tmux target (session:window.pane) the backend should attach to
+
+Example:
+  proctor capture cli \
+    --scenario happy-path \
+    --session magellan-cli-1 \
+    --tmux-target magellan:0.0 \
+    --label terminal
 `
 }
 
