@@ -22,8 +22,10 @@ bin/
 build/
 dist/
 coverage/
+/proctor
 
 # Local runtime state
 .proctor/
 .codex-runtime/
 .jj/
+.claude/worktrees/
