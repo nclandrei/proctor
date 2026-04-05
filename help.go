@@ -136,9 +136,35 @@ func wantsHelp(args []string) bool {
 func rootHelpText() string {
 	return `proctor - make a coding agent prove it manually tested its own work
 
-Proctor is intentionally long-form. The agent is supposed to learn the workflow
-from this help text, then come back with real proof instead of a hand-wavy
-"tested it" claim.
+Quick reference (the verification loop, one pass per scenario):
+  proctor start   -> define happy path, failure path, and edge-case scenarios
+  proctor note    -> commit to intent BEFORE screenshotting ("what I'm about to test")
+  proctor record  -> attach the screenshot + report + assertions
+  proctor verify  -> re-read the screenshot, write what you actually saw
+  proctor done    -> passes only if every scenario has note + record + verify
+
+Commands:
+  start       create a verification contract with happy/failure/edge scenarios
+  status      show contract state: missing notes, pending verifications, gaps
+  note        file pre-test intent for a (scenario, session) BEFORE recording
+  record      attach evidence (screenshots, reports, transcripts) to a scenario
+  verify      write observation notes after re-reading the recorded screenshot
+  done        enforce contract; fails if any scenario is incomplete
+  report      generate HTML/markdown summary for the run
+  help TOPIC  detailed help (start | note | record | verify | done | status | report)
+
+Gates that force the agent to slow down and look:
+  record refuses without a pre-note for (scenario, session)
+  done refuses while any scenario has pending-verification evidence
+  done refuses if any scenario has no pre-note filed
+
+Minimum note length: 20 characters (pre-note AND post-verify observation).
+
+---
+
+Proctor is intentionally long-form below this line. The agent is supposed to
+learn the workflow from this help text, then come back with real proof instead
+of a hand-wavy "tested it" claim.
 
 Reading this help text is not the task.
 The task is to inspect the current diff, identify the user-visible change,
