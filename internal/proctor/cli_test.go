@@ -103,6 +103,8 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	verifyAllScenarios(t, store, run, testObservationNotes)
+
 	eval, err := CompleteRun(store, run)
 	if err != nil {
 		t.Fatal(err)

@@ -66,6 +66,19 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 		"--assert", "screenshot = true",
 	)
 
+	runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
+		"verify",
+		"--scenario", "happy-path",
+		"--session", "integration-cli-1",
+		"--notes", "terminal shows the demo help usage block and the onboarding prompt heading",
+	)
+	runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
+		"verify",
+		"--scenario", "failure-path",
+		"--session", "integration-cli-1",
+		"--notes", "terminal shows error: prompt not found with no stack trace and a non-zero exit code",
+	)
+
 	statusOutput := runProctorCLI(t, proctorBinary, repoRoot, proctorHome, "status")
 	for _, needle := range []string{
 		"Run: ",

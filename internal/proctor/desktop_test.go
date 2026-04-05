@@ -271,6 +271,8 @@ func TestDonePassesWhenRequiredDesktopEvidenceExists(t *testing.T) {
 		}
 	}
 
+	verifyAllScenarios(t, store, run, testObservationNotes)
+
 	eval, err := CompleteRun(store, run)
 	if err != nil {
 		t.Fatal(err)

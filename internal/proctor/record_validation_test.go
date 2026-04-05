@@ -182,6 +182,8 @@ func TestCompleteRunAcceptsFreshRun(t *testing.T) {
 		}
 	}
 
+	verifyAllScenarios(t, store, run, testObservationNotes)
+
 	// Run was just created — should not be expired.
 	eval, err := CompleteRun(store, run)
 	if err != nil {

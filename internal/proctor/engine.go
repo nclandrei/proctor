@@ -3,6 +3,7 @@ package proctor
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -11,6 +12,22 @@ import (
 	"strings"
 	"time"
 )
+
+// Stdout is the writer the engine uses to surface post-record instructions
+// to the agent. Tests can override it to capture output.
+var Stdout io.Writer = os.Stdout
+
+func printVerificationInstructions(scenarioID, sessionID string) {
+	if Stdout == nil {
+		return
+	}
+	fmt.Fprintf(
+		Stdout,
+		"Evidence recorded, scenario %s requires verification. "+
+			"Run: proctor verify --scenario %s --session %s --notes 'describe what you see in the screenshot'\n",
+		scenarioID, scenarioID, sessionID,
+	)
+}
 
 func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 	platform := normalizePlatform(firstNonEmpty(opts.Platform, opts.Surface))
@@ -287,6 +304,7 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 			Desktop:   reportData.Desktop,
 			Mobile:    reportData.Mobile,
 		},
+		Status: EvidenceStatusPending,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
 		return err
@@ -294,6 +312,7 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
+	printVerificationInstructions(scenario.ID, opts.SessionID)
 	return checkAssertionFailures(assertions)
 }
 
@@ -380,6 +399,7 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 		Artifacts:  artifacts,
 		CaptureIDs: captureIDs,
 		IOS:        &reportData,
+		Status:     EvidenceStatusPending,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
 		return err
@@ -387,6 +407,7 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
+	printVerificationInstructions(scenario.ID, opts.SessionID)
 	return checkAssertionFailures(assertions)
 }
 
@@ -572,6 +593,7 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 			ExitCode:          opts.ExitCode,
 			TranscriptPreview: transcriptPreview(transcript),
 		},
+		Status: EvidenceStatusPending,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
 		return err
@@ -579,6 +601,7 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
+	printVerificationInstructions(scenario.ID, strings.TrimSpace(opts.SessionID))
 	return checkAssertionFailures(assertions)
 }
 
@@ -667,6 +690,7 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 		Artifacts:  artifacts,
 		CaptureIDs: captureIDs,
 		Desktop:    &reportData,
+		Status:     EvidenceStatusPending,
 	}
 	if err := store.AppendEvidence(run, evidence); err != nil {
 		return err
@@ -674,6 +698,7 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	if err := writeReports(store, run); err != nil {
 		return err
 	}
+	printVerificationInstructions(scenario.ID, opts.SessionID)
 	return checkAssertionFailures(assertions)
 }
 
@@ -838,6 +863,7 @@ func validateDesktopEvidence(store *Store, run Run, items []Evidence) (bool, []s
 	}
 	for _, item := range items {
 		issues := desktopEvidenceIssues(store, run, item)
+		issues = append(issues, verificationIssues(item)...)
 		if len(issues) == 0 {
 			return true, nil
 		}
@@ -845,6 +871,7 @@ func validateDesktopEvidence(store *Store, run Run, items []Evidence) (bool, []s
 	var issues []string
 	for _, item := range items {
 		issues = append(issues, desktopEvidenceIssues(store, run, item)...)
+		issues = append(issues, verificationIssues(item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -916,6 +943,69 @@ func CompleteRun(store *Store, run Run) (Evaluation, error) {
 		return Evaluation{}, err
 	}
 	return eval, nil
+}
+
+// VerifyEvidence closes the verification loop for a single evidence record.
+// After recording, every piece of evidence is written with
+// Status=pending-verification; the agent is expected to re-read its own
+// screenshot, write a short textual observation of what it saw, and commit
+// that observation via this function. VerifyEvidence locates the latest
+// evidence record for the given scenario+session, validates the notes, then
+// appends a new evidence entry with the same ID, Status=complete, and the
+// notes attached. Because LoadEvidence collapses to latest-per-ID, this
+// supersedes the original pending record.
+func VerifyEvidence(store *Store, run Run, scenarioID, sessionID, notes string) error {
+	scenarioID = strings.TrimSpace(scenarioID)
+	sessionID = strings.TrimSpace(sessionID)
+	if scenarioID == "" {
+		return fmt.Errorf("verify evidence: --scenario is required")
+	}
+	if sessionID == "" {
+		return fmt.Errorf("verify evidence: --session is required")
+	}
+	trimmedNotes := strings.TrimSpace(notes)
+	if trimmedNotes == "" {
+		return fmt.Errorf("notes required: describe what you see in the screenshot")
+	}
+	if len(trimmedNotes) < MinObservationNotesLength {
+		return fmt.Errorf(
+			"observation notes must describe what you see in the screenshot (got %d chars, minimum %d)",
+			len(trimmedNotes), MinObservationNotesLength,
+		)
+	}
+
+	records, err := store.loadEvidenceRaw(run)
+	if err != nil {
+		return err
+	}
+
+	var target Evidence
+	found := false
+	for _, item := range records {
+		if item.ScenarioID != scenarioID {
+			continue
+		}
+		if item.Provenance.SessionID != sessionID {
+			continue
+		}
+		target = item
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("no evidence for scenario %s session %s", scenarioID, sessionID)
+	}
+	if target.Status == EvidenceStatusComplete {
+		return fmt.Errorf("evidence already verified for scenario %s session %s", scenarioID, sessionID)
+	}
+
+	now := time.Now().UTC()
+	target.Status = EvidenceStatusComplete
+	target.Notes = trimmedNotes
+	target.VerifiedAt = &now
+	if err := store.AppendEvidence(run, target); err != nil {
+		return err
+	}
+	return writeReports(store, run)
 }
 
 func WriteReports(store *Store, run Run) error {
@@ -1273,6 +1363,7 @@ func validateBrowserEvidence(store *Store, run Run, scenario Scenario, items []E
 	}
 	for _, item := range items {
 		issues := browserEvidenceIssues(store, run, scenario, item)
+		issues = append(issues, verificationIssues(item)...)
 		if len(issues) == 0 {
 			return true, nil
 		}
@@ -1280,6 +1371,7 @@ func validateBrowserEvidence(store *Store, run Run, scenario Scenario, items []E
 	var issues []string
 	for _, item := range items {
 		issues = append(issues, browserEvidenceIssues(store, run, scenario, item)...)
+		issues = append(issues, verificationIssues(item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -1290,6 +1382,7 @@ func validateIOSEvidence(store *Store, run Run, items []Evidence) (bool, []strin
 	}
 	for _, item := range items {
 		issues := iosEvidenceIssues(store, run, item)
+		issues = append(issues, verificationIssues(item)...)
 		if len(issues) == 0 {
 			return true, nil
 		}
@@ -1297,6 +1390,7 @@ func validateIOSEvidence(store *Store, run Run, items []Evidence) (bool, []strin
 	var issues []string
 	for _, item := range items {
 		issues = append(issues, iosEvidenceIssues(store, run, item)...)
+		issues = append(issues, verificationIssues(item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -1324,6 +1418,7 @@ func validateCLIEvidence(store *Store, run Run, items []Evidence) (bool, []strin
 	}
 	for _, item := range items {
 		issues := cliEvidenceIssues(store, run, item)
+		issues = append(issues, verificationIssues(item)...)
 		if len(issues) == 0 {
 			return true, nil
 		}
@@ -1331,6 +1426,7 @@ func validateCLIEvidence(store *Store, run Run, items []Evidence) (bool, []strin
 	var issues []string
 	for _, item := range items {
 		issues = append(issues, cliEvidenceIssues(store, run, item)...)
+		issues = append(issues, verificationIssues(item)...)
 	}
 	return false, dedupeStrings(issues)
 }
@@ -1739,6 +1835,23 @@ func assertionIssues(assertions []Assertion, surface string) []string {
 		issues = append(issues, fmt.Sprintf("%s evidence has no passing assertions", surface))
 	}
 	return issues
+}
+
+func verificationIssues(item Evidence) []string {
+	// An unset Status is treated as pending for forward-compatibility with
+	// evidence recorded by older binaries; only explicit "complete" clears
+	// the verification gate. Curl evidence is internal-only (a wrapped HTTP
+	// command with no screenshot) and does not carry a verification status.
+	if item.Surface == SurfaceCurl {
+		return nil
+	}
+	if item.Status == EvidenceStatusComplete {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"evidence awaiting verification (run proctor verify --scenario %s --session %s --notes '...')",
+		item.ScenarioID, item.Provenance.SessionID,
+	)}
 }
 
 func dedupeStrings(values []string) []string {

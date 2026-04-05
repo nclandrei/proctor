@@ -28,13 +28,18 @@ const (
 	StatusPassed       = "passed"
 	AssertionPass      = "pass"
 	AssertionFail      = "fail"
-	ArtifactImage      = "image"
-	ArtifactJSONReport = "json-report"
-	ArtifactTranscript = "transcript"
-	ArtifactHTML       = "html"
-	ArtifactMarkdown   = "markdown"
-	EdgeCategoryNA     = "na"
-	EdgeCategoryScenar = "scenario"
+
+	EvidenceStatusPending  = "pending-verification"
+	EvidenceStatusComplete = "complete"
+
+	MinObservationNotesLength = 20
+	ArtifactImage             = "image"
+	ArtifactJSONReport        = "json-report"
+	ArtifactTranscript        = "transcript"
+	ArtifactHTML              = "html"
+	ArtifactMarkdown          = "markdown"
+	EdgeCategoryNA            = "na"
+	EdgeCategoryScenar        = "scenario"
 )
 
 var WebEdgeCaseCategories = []string{
@@ -170,6 +175,9 @@ type Evidence struct {
 	Curl       *CurlData    `json:"curl,omitempty"`
 	CLI        *CLIData     `json:"cli,omitempty"`
 	Desktop    *DesktopData `json:"desktop,omitempty"`
+	Status     string       `json:"status,omitempty"`
+	Notes      string       `json:"notes,omitempty"`
+	VerifiedAt *time.Time   `json:"verified_at,omitempty"`
 }
 
 type Provenance struct {

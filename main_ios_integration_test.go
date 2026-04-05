@@ -76,6 +76,17 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
 			}
 		}
 
+		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+			if err := run([]string{
+				"verify",
+				"--scenario", scenarioID,
+				"--session", "pagena-library-1",
+				"--notes", "library screen visible with list of reader items and bottom navigation tabs in foreground",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		statusOutput := captureStdout(t, func() {
 			if err := run([]string{"status"}); err != nil {
 				t.Fatal(err)

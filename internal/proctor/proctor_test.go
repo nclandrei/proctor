@@ -829,6 +829,8 @@ func TestBrowserWarningsAreRecordedButNotImplicitlyBlocking(t *testing.T) {
 		}
 	}
 
+	verifyAllScenarios(t, store, run, testObservationNotes)
+
 	eval, err := Evaluate(store, run)
 	if err != nil {
 		t.Fatal(err)
@@ -1001,6 +1003,8 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	verifyAllScenarios(t, store, run, testObservationNotes)
+
 	eval, err := CompleteRun(store, run)
 	if err != nil {
 		t.Fatal(err)
@@ -1102,6 +1106,8 @@ func TestEvaluateRequiresGlobalMobileScreenshotCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
+	verifyAllScenarios(t, store, run, testObservationNotes)
 
 	eval, err := Evaluate(store, run)
 	if err != nil {
@@ -1548,6 +1554,8 @@ func TestMobileResponsiveScenarioPassesWithMobileProof(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	verifyAllScenarios(t, store, run, testObservationNotes)
+
 	eval, err := Evaluate(store, run)
 	if err != nil {
 		t.Fatal(err)
@@ -1790,6 +1798,44 @@ func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
 	}
 	return writeFixture(t, dir, name, padded)
 }
+
+// verifyAllScenarios walks every evidence entry in the ledger and calls
+// VerifyEvidence once per (scenario, session) pair using a fixed observation
+// note. Most tests only need every recorded screenshot to be flipped to
+// complete so the scenario can be evaluated; this helper keeps that
+// boilerplate out of the individual test bodies.
+func verifyAllScenarios(t *testing.T, store *Store, run Run, notes string) {
+	t.Helper()
+	if len(notes) < MinObservationNotesLength {
+		t.Fatalf("verifyAllScenarios notes too short (%d chars); test fixtures must supply real observations", len(notes))
+	}
+	records, err := store.loadEvidenceRaw(run)
+	if err != nil {
+		t.Fatalf("load evidence for verification: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, item := range records {
+		if item.Surface == SurfaceCurl {
+			continue
+		}
+		key := item.ScenarioID + "\x00" + item.Provenance.SessionID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if item.Status == EvidenceStatusComplete {
+			continue
+		}
+		if err := VerifyEvidence(store, run, item.ScenarioID, item.Provenance.SessionID, notes); err != nil {
+			t.Fatalf("verify evidence for scenario %s session %s: %v", item.ScenarioID, item.Provenance.SessionID, err)
+		}
+	}
+}
+
+// testObservationNotes returns a fixed observation note that safely clears
+// the 20-character minimum for proctor verify. Tests use this when they only
+// need the verification gate to pass and the exact text is not under test.
+const testObservationNotes = "screenshot shows the expected view with the described UI elements visible"
 
 func containsSubstring(values []string, needle string) bool {
 	for _, value := range values {

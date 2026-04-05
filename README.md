@@ -396,7 +396,25 @@ proctor record curl \
     -d '{"email":"demo@example.com","password":"wrong"}'
 ```
 
-### 8. Check Coverage And Finish
+### 8. Verify Each Recorded Screenshot
+
+Every `proctor record` call that produces a screenshot marks that evidence
+`pending-verification`. Before `proctor done` can pass, the agent must
+re-read the image it just recorded, write a short description of what is
+actually visible, and commit that observation with `proctor verify`:
+
+```bash
+proctor verify \
+  --scenario happy-path \
+  --session auth-browser-1 \
+  --notes "dashboard greets 'Hello, demo@example.com' with a Sign out button top right"
+```
+
+Notes must be at least 20 characters and should describe specific, falsifiable
+details visible in the image rather than vague claims like "ok" or
+"looks good". Each evidence record can only be verified once.
+
+### 9. Check Coverage And Finish
 
 ```bash
 proctor status
@@ -405,6 +423,8 @@ proctor report
 ```
 
 `proctor done` is the real completion gate. If it fails, the run is not complete.
+It also refuses to pass while any scenario's most recent evidence is still
+pending-verification.
 
 ## What Counts As Proof
 
@@ -622,6 +642,10 @@ CLI:
   Attaches desktop app evidence to one scenario.
 - `proctor record curl`
   Wraps and records one real HTTP command for one scenario.
+- `proctor verify`
+  Stores the agent's written observation of a recorded screenshot and flips
+  that evidence from pending-verification to complete. Mandatory after every
+  `proctor record` call that produces a screenshot.
 - `proctor done`
   Fails until the contract is satisfied.
 - `proctor report`
@@ -636,6 +660,7 @@ proctor record cli --help
 proctor record ios --help
 proctor record desktop --help
 proctor record curl --help
+proctor verify --help
 proctor done --help
 ```
 

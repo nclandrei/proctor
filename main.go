@@ -59,6 +59,8 @@ func run(args []string) error {
 		return runStatus(store, cwd)
 	case "record":
 		return runRecord(store, cwd, args[1:])
+	case "verify":
+		return runVerify(store, cwd, args[1:])
 	case "done":
 		return runDone(store, cwd)
 	case "report":
@@ -358,6 +360,40 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 		return err
 	}
 	fmt.Printf("Recorded desktop evidence for %s\n", opts.ScenarioID)
+	return nil
+}
+
+func runVerify(store *proctor.Store, cwd string, args []string) error {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var scenario, session, notes string
+	fs.StringVar(&scenario, "scenario", "", "")
+	fs.StringVar(&session, "session", "", "")
+	fs.StringVar(&notes, "notes", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var missing []string
+	if strings.TrimSpace(scenario) == "" {
+		missing = append(missing, "--scenario")
+	}
+	if strings.TrimSpace(session) == "" {
+		missing = append(missing, "--session")
+	}
+	if strings.TrimSpace(notes) == "" {
+		missing = append(missing, "--notes")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required flags: %s", strings.Join(missing, ", "))
+	}
+	run, err := store.LoadRun(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	if err := proctor.VerifyEvidence(store, run, scenario, session, notes); err != nil {
+		return err
+	}
+	fmt.Printf("Verified scenario %s\n", scenario)
 	return nil
 }
 

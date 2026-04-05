@@ -65,6 +65,17 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
 			}
 		}
 
+		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+			if err := run([]string{
+				"verify",
+				"--scenario", scenarioID,
+				"--session", "firefox-desktop-1",
+				"--notes", "Firefox bookmark manager window visible with Bookmarks title and saved entries list shown",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		statusOutput := captureStdout(t, func() {
 			if err := run([]string{"status"}); err != nil {
 				t.Fatal(err)

@@ -33,6 +33,10 @@ func commandHelp(args []string) (string, bool, error) {
 		if wantsHelp(args[1:]) {
 			return statusHelpText(), true, nil
 		}
+	case "verify":
+		if wantsHelp(args[1:]) {
+			return verifyHelpText(), true, nil
+		}
 	case "done":
 		if wantsHelp(args[1:]) {
 			return doneHelpText(), true, nil
@@ -85,6 +89,8 @@ func topicHelp(args []string) (string, error) {
 		return startHelpText(), nil
 	case "status":
 		return statusHelpText(), nil
+	case "verify":
+		return verifyHelpText(), nil
 	case "done":
 		return doneHelpText(), nil
 	case "report":
@@ -138,7 +144,9 @@ Mandatory next step for the agent after reading this help:
   2. run proctor start with the right platform for that feature
   3. perform the actual manual checks
   4. attach evidence with the relevant proctor record command(s)
-  5. finish with proctor done
+  5. re-read each recorded screenshot and call proctor verify with an
+     observation describing what is actually visible in the image
+  6. finish with proctor done
 
 Proctor does three things:
   1. creates a verification contract for the feature being tested
@@ -203,6 +211,12 @@ Typical web workflow:
     curl -si -X POST http://127.0.0.1:3000/api/login \
       -H 'content-type: application/json' \
       -d '{"email":"demo@example.com","password":"wrong"}'
+
+  # Re-read each recorded screenshot and commit an observation of what it shows:
+  proctor verify \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --notes "dashboard greets Hello, demo@example.com with a Sign out button top right"
 
   proctor status
   proctor done
@@ -416,6 +430,7 @@ Use subcommand help for exact flags:
   proctor record ios --help
   proctor record desktop --help
   proctor record curl --help
+  proctor verify --help
   proctor done --help
 
 Outputs:
@@ -614,6 +629,7 @@ After start:
   - run your platform checks
   - attach web evidence with proctor record browser, iOS evidence with proctor record ios, desktop evidence with proctor record desktop, or terminal evidence with proctor record cli
   - wrap curl with proctor record curl for the scenarios that require it on web, ios, or desktop runs
+  - re-read each recorded screenshot and close the loop with proctor verify --scenario X --session Y --notes "..."
   - finish with proctor done
 `)
 	b.WriteString(allPlatformRecommendationSection())
@@ -646,6 +662,9 @@ Important:
   - curl evidence must produce a real HTTP response and match one declared curl endpoint for that scenario
   - curl requirements are decided per scenario, not by endpoint alone
   - only recorded evidence counts toward proctor done
+  - every recorded screenshot evidence enters pending-verification and must
+    be closed with proctor verify --scenario X --session Y --notes "..." (minimum 20 chars)
+    before proctor done can pass
 `
 }
 
@@ -987,12 +1006,58 @@ This prints:
   - whether browser evidence passes or fails
   - whether cli evidence passes or fails
   - whether ios evidence passes or fails
+  - whether desktop evidence passes or fails
   - whether curl evidence passes or fails for scenarios that require it
+  - whether recorded evidence is still pending-verification (awaiting proctor verify)
   - any global gaps such as missing required screenshots
 
 Use this after each record step so the agent can see what is still missing.
+Scenarios with pending-verification evidence appear here until the agent
+writes observation notes with proctor verify.
 When the run is incomplete, proctor status also prints platform-specific local
 capture recommendations based on tools found on PATH.
+`
+}
+
+func verifyHelpText() string {
+	return `proctor verify - commit the agent's observation of a recorded screenshot
+
+Usage:
+  proctor verify \
+    --scenario ID \
+    --session SESSION \
+    --notes "what the screenshot actually shows"
+
+Required:
+  --scenario ID      Scenario id matching a recorded evidence entry
+  --session SESSION  Session id used when the evidence was recorded
+  --notes TEXT       Free-text observation (minimum 20 characters)
+
+Every proctor record command marks its evidence pending-verification. The
+agent is expected to:
+
+  1. open the PNG it just recorded and look at it directly
+     (any multimodal agent can do this with its own file-read capability)
+  2. write a short, specific description of what is actually visible in
+     the screenshot (at least 20 characters)
+  3. call proctor verify with those notes
+
+proctor done refuses to pass while any scenario's most-recent evidence is
+still pending-verification. Notes are stored alongside the evidence for the
+contract report. Each evidence record can only be verified once.
+
+Observations should be falsifiable, not generic:
+
+  bad:   "ok"
+  bad:   "looks good"
+  good:  "login form with email and password fields, submit button is
+          disabled, red error text reads 'invalid credentials'"
+
+Example:
+  proctor verify \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --notes "dashboard shows greeting Hello, demo@example.com with a Sign out button top right"
 `
 }
 
@@ -1008,11 +1073,18 @@ Passes only when:
   - cli scenarios have trusted terminal evidence
   - ios scenarios have trusted ios evidence
   - desktop scenarios have trusted desktop app evidence
+  - every recorded piece of evidence has been verified with proctor verify
   - the run includes the required screenshot coverage for its platform
   - required assertions pass
   - artifact hashes still match
   - no duplicate screenshots are reused across different scenarios
   - the run is not expired (max 2 hours from start)
+
+Recording a screenshot is not enough on its own. After each proctor record
+call, run proctor verify --scenario ID --session SESSION --notes "..." with
+a short written observation of what the screenshot actually shows. proctor
+done will refuse to pass while any scenario still has pending-verification
+evidence.
 
 If the contract is incomplete, proctor done exits non-zero and prints what is
 still missing. This is the command the agent should treat as the real

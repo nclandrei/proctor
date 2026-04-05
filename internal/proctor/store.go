@@ -112,7 +112,25 @@ func (s *Store) AppendEvidence(run Run, evidence Evidence) error {
 	return enc.Encode(evidence)
 }
 
+// LoadEvidence returns the most recent record per evidence ID from
+// evidence.jsonl. The underlying file is append-only, so multiple entries can
+// share the same ID when an evidence record is updated (for example by
+// VerifyEvidence flipping a pending record to complete). This reader
+// collapses duplicates to the latest entry per ID while preserving the order
+// in which those latest entries first appeared.
 func (s *Store) LoadEvidence(run Run) ([]Evidence, error) {
+	return s.loadEvidenceLatestPerID(run)
+}
+
+// LoadAllEvidence returns every evidence record in evidence.jsonl in file
+// order, including historical superseded entries. Used when the raw ledger
+// needs to be inspected (for example, to count how often a record has been
+// verified).
+func (s *Store) LoadAllEvidence(run Run) ([]Evidence, error) {
+	return s.loadEvidenceRaw(run)
+}
+
+func (s *Store) loadEvidenceRaw(run Run) ([]Evidence, error) {
 	path := filepath.Join(s.RunDir(run), "evidence.jsonl")
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -129,6 +147,7 @@ func (s *Store) LoadEvidence(run Run) ([]Evidence, error) {
 
 	var evidence []Evidence
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		var item Evidence
 		if err := json.Unmarshal(scanner.Bytes(), &item); err != nil {
@@ -137,6 +156,31 @@ func (s *Store) LoadEvidence(run Run) ([]Evidence, error) {
 		evidence = append(evidence, item)
 	}
 	return evidence, scanner.Err()
+}
+
+func (s *Store) loadEvidenceLatestPerID(run Run) ([]Evidence, error) {
+	raw, err := s.loadEvidenceRaw(run)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	latestIdx := map[string]int{}
+	latest := map[string]Evidence{}
+	order := []string{}
+	for _, item := range raw {
+		if _, seen := latest[item.ID]; !seen {
+			latestIdx[item.ID] = len(order)
+			order = append(order, item.ID)
+		}
+		latest[item.ID] = item
+	}
+	result := make([]Evidence, len(order))
+	for id, idx := range latestIdx {
+		result[idx] = latest[id]
+	}
+	return result, nil
 }
 
 func (s *Store) CopyArtifact(run Run, surface, scenarioID, label, sourcePath string) (Artifact, error) {
