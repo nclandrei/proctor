@@ -1160,7 +1160,11 @@ func writeReports(store *Store, run Run) error {
 	if err != nil {
 		return err
 	}
-	markdown, html, err := RenderReports(run, store.RunDir(run), eval, evidence)
+	preNotes, err := store.LoadPreNotes(run)
+	if err != nil {
+		return err
+	}
+	markdown, html, err := RenderReports(run, store.RunDir(run), eval, evidence, preNotes)
 	if err != nil {
 		return err
 	}

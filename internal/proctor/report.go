@@ -19,12 +19,14 @@ type scenarioReport struct {
 
 type scenarioHTMLReport struct {
 	Eval     ScenarioEvaluation
+	PreNotes []PreNote
 	Evidence []evidenceHTMLReport
 }
 
 type evidenceHTMLReport struct {
 	Surface    string
 	Summary    []string
+	Notes      string
 	Assertions []Assertion
 	Artifacts  []artifactHTMLReport
 	CreatedAt  time.Time
@@ -41,12 +43,17 @@ type artifactHTMLReport struct {
 	ModalID             string
 }
 
-func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence) (string, string, error) {
+func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence, preNotes []PreNote) (string, string, error) {
 	scenarios := groupEvidenceByScenario(eval, evidence)
-	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios)
+	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios, preNotes)
 	edgeCoverage := edgeCoverageRows(run)
 	curlRequirements := curlRequirementRows(run)
 	runSurface := normalizePlatform(run.Platform)
+
+	preNoteIndex := map[string][]PreNote{}
+	for _, n := range preNotes {
+		preNoteIndex[n.Scenario] = append(preNoteIndex[n.Scenario], n)
+	}
 
 	var md strings.Builder
 	md.WriteString(fmt.Sprintf("# %s\n\n", run.Feature))
@@ -119,10 +126,27 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
 			md.WriteString(fmt.Sprintf("- %s: fail (%s)\n", strings.ToUpper(surface), strings.Join(scenario.Eval.SurfaceIssues(surface), ", ")))
 		}
 
+		// Pre-test notes
+		preNotes := preNoteIndex[scenario.Eval.Scenario.ID]
+		if len(preNotes) > 0 {
+			md.WriteString("\n**Pre-test notes:**\n\n")
+			for _, n := range preNotes {
+				md.WriteString(fmt.Sprintf("> %s\n", n.Notes))
+				md.WriteString(fmt.Sprintf("> — %s", formatTimestamp(n.CreatedAt)))
+				if n.Session != "" {
+					md.WriteString(fmt.Sprintf(" · session: `%s`", n.Session))
+				}
+				md.WriteString("\n\n")
+			}
+		}
+
 		for _, item := range scenario.Evidence {
 			md.WriteString(fmt.Sprintf("\n#### %s Evidence\n\n", titleCase(item.Surface)))
 			for _, line := range evidenceSummaryLines(item) {
 				md.WriteString(fmt.Sprintf("- %s\n", line))
+			}
+			if item.Notes != "" {
+				md.WriteString(fmt.Sprintf("\n> **Observation notes:** %s\n\n", item.Notes))
 			}
 			for _, assertion := range item.Assertions {
 				icon := "FAIL"
@@ -254,6 +278,11 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
     .global-gaps { margin: 28px 0; padding: 10px 14px; border-left: 3px solid var(--fail); background: var(--fail-bg); }
     .global-gaps h2 { border: none; margin: 0 0 6px; padding: 0; }
     .global-gaps ul { padding-left: 20px; font-size: 0.88em; }
+    .notes { margin: 8px 0; padding: 6px 10px; background: #f6f8fa; border-left: 3px solid #d0d7de; border-radius: 2px; font-size: 0.85em; white-space: pre-wrap; }
+    .notes-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+    .pre-notes { margin: 8px 0; }
+    .pre-note { margin: 4px 0; padding: 6px 10px; background: #fff8c5; border-left: 3px solid #d4a72c; border-radius: 2px; font-size: 0.85em; }
+    .pre-note-meta { font-size: 0.78em; color: var(--muted); margin-bottom: 2px; }
     @media print { .scenario { break-inside: avoid; } .lightbox { display: none !important; } }
   </style>
 </head>
@@ -295,11 +324,23 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence)
       <div class="scenario-id"><code>{{ $eval.Scenario.ID }}</code></div>
       {{ if and $eval.Scenario.CurlRequired $eval.Scenario.CurlEndpoints }}<p class="muted">curl: {{ range $ci, $ep := $eval.Scenario.CurlEndpoints }}{{ if $ci }}, {{ end }}<code>{{ $ep }}</code>{{ end }}</p>{{ end }}
       {{ range scenarioSurfaces $eval.Scenario }}{{ if not (surfaceOK $eval .) }}<ul class="issue-list">{{ range surfaceIssues $eval . }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}{{ end }}
+      {{ if $s.PreNotes }}
+      <div class="pre-notes">
+        <div class="notes-label">Pre-test notes</div>
+        {{ range $s.PreNotes }}
+        <div class="pre-note">
+          <div class="pre-note-meta">{{ formatTimestamp .CreatedAt }}{{ if .Session }} · session: <code>{{ .Session }}</code>{{ end }}</div>
+          {{ .Notes }}
+        </div>
+        {{ end }}
+      </div>
+      {{ end }}
       {{ range $s.Evidence }}
       <div class="evidence">
         <h4 class="evidence-label">{{ surfaceTitle .Surface }} Evidence</h4>
         {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">Captured: {{ formatTimestamp .CreatedAt }}</div>{{ end }}
         {{ if .Summary }}<ul class="kv-list">{{ range .Summary }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
+        {{ if .Notes }}<div class="notes"><div class="notes-label">Observation notes</div>{{ .Notes }}</div>{{ end }}
         <ul class="assertion-list">
           {{ range .Assertions }}
           <li>
@@ -443,14 +484,22 @@ func curlRequirementRows(run Run) []curlRequirementRow {
 	return rows
 }
 
-func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport) []scenarioHTMLReport {
+func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport, preNotes []PreNote) []scenarioHTMLReport {
+	preNoteIndex := map[string][]PreNote{}
+	for _, n := range preNotes {
+		preNoteIndex[n.Scenario] = append(preNoteIndex[n.Scenario], n)
+	}
 	reports := make([]scenarioHTMLReport, 0, len(scenarios))
 	for scenarioIdx, scenario := range scenarios {
-		htmlScenario := scenarioHTMLReport{Eval: scenario.Eval}
+		htmlScenario := scenarioHTMLReport{
+			Eval:     scenario.Eval,
+			PreNotes: preNoteIndex[scenario.Eval.Scenario.ID],
+		}
 		for evidenceIdx, item := range scenario.Evidence {
 			htmlEvidence := evidenceHTMLReport{
 				Surface:    item.Surface,
 				Summary:    evidenceSummaryLines(item),
+				Notes:      item.Notes,
 				Assertions: append([]Assertion(nil), item.Assertions...),
 				CreatedAt:  item.CreatedAt,
 			}
