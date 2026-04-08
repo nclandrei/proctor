@@ -1096,6 +1096,18 @@ func LogStep(store *Store, run Run, opts LogStepOptions) (ScreenshotLogEntry, er
 	if err != nil {
 		return ScreenshotLogEntry{}, fmt.Errorf("copy screenshot: %w", err)
 	}
+	artifact.Kind = ArtifactImage
+	artifacts := []Artifact{artifact}
+
+	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if err := validateScreenshotFreshness(artifacts, DefaultMaxScreenshotAge); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if err := detectDuplicateScreenshots(store, run, scenarioID, artifacts); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
 
 	ledger := store.ScreenshotLogLedger(run)
 	step, err := ledger.NextStep(scenarioID, sessionID)

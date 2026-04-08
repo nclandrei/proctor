@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -391,6 +392,51 @@ func TestScreenshotLogPath(t *testing.T) {
 	path := store.ScreenshotLogPath(run)
 	if !strings.HasSuffix(path, "screenshot-log.jsonl") {
 		t.Fatalf("expected path to end with screenshot-log.jsonl, got %s", path)
+	}
+}
+
+func TestLogStepRejectsTinyScreenshot(t *testing.T) {
+	store, run, repo := setupLogFixture(t)
+	// Write a file smaller than DefaultMinScreenshotSize.
+	tinyPath := writeFixture(t, repo, "tiny.png", "small")
+	_, err := LogStep(store, run, LogStepOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "s",
+		Surface:        SurfaceBrowser,
+		ScreenshotPath: tinyPath,
+		Action:         testAction,
+		Observation:    testObservation,
+		Comparison:     testComparison,
+	})
+	if err == nil {
+		t.Fatal("expected tiny screenshot to be rejected")
+	}
+	if !strings.Contains(err.Error(), "too small") {
+		t.Fatalf("expected size error, got: %v", err)
+	}
+}
+
+func TestLogStepRejectsStaleScreenshot(t *testing.T) {
+	store, run, repo := setupLogFixture(t)
+	shot := writeScreenshotFixture(t, repo, "stale.png", "stale-log")
+	staleTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(shot, staleTime, staleTime); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LogStep(store, run, LogStepOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "s",
+		Surface:        SurfaceBrowser,
+		ScreenshotPath: shot,
+		Action:         testAction,
+		Observation:    testObservation,
+		Comparison:     testComparison,
+	})
+	if err == nil {
+		t.Fatal("expected stale screenshot to be rejected")
+	}
+	if !strings.Contains(err.Error(), "too old") {
+		t.Fatalf("expected freshness error, got: %v", err)
 	}
 }
 
