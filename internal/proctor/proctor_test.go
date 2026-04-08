@@ -1817,7 +1817,8 @@ func writeFixture(t *testing.T, dir, name, content string) string {
 func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	minSize := int(DefaultMinScreenshotSize) + 1
-	padded := content
+	// Prepend PNG magic bytes so the format check passes.
+	padded := "\x89PNG\r\n\x1a\n" + content
 	for len(padded) < minSize {
 		padded += "\x00"
 	}

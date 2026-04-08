@@ -19,8 +19,11 @@ import (
 func e2eScreenshotBytes(seed string) []byte {
 	minSize := int(DefaultMinScreenshotSize) + 1
 	buf := make([]byte, minSize)
-	copy(buf, []byte("e2e-png-"+seed+"-"))
-	for i := len("e2e-png-" + seed + "-"); i < minSize; i++ {
+	// Start with PNG magic bytes so the format check passes.
+	pngMagic := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	copy(buf, pngMagic)
+	copy(buf[len(pngMagic):], []byte("e2e-"+seed+"-"))
+	for i := len(pngMagic) + len("e2e-"+seed+"-"); i < minSize; i++ {
 		buf[i] = byte((i + len(seed)) & 0xff)
 	}
 	return buf

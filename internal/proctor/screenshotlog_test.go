@@ -440,6 +440,79 @@ func TestLogStepRejectsStaleScreenshot(t *testing.T) {
 	}
 }
 
+func TestLogStepRejectsNonImageFile(t *testing.T) {
+	store, run, repo := setupLogFixture(t)
+	// Write a file with enough bytes but no image magic header.
+	minSize := int(DefaultMinScreenshotSize) + 1
+	textContent := "this is not an image file but has enough bytes"
+	for len(textContent) < minSize {
+		textContent += "\x00"
+	}
+	fakePath := writeFixture(t, repo, "fake.png", textContent)
+	_, err := LogStep(store, run, LogStepOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "s",
+		Surface:        SurfaceBrowser,
+		ScreenshotPath: fakePath,
+		Action:         testAction,
+		Observation:    testObservation,
+		Comparison:     testComparison,
+	})
+	if err == nil {
+		t.Fatal("expected non-image file to be rejected")
+	}
+	if !strings.Contains(err.Error(), "not a valid image") {
+		t.Fatalf("expected image format error, got: %v", err)
+	}
+}
+
+func TestLogStepAcceptsJPEG(t *testing.T) {
+	store, run, repo := setupLogFixture(t)
+	minSize := int(DefaultMinScreenshotSize) + 1
+	// JPEG magic: FF D8 FF
+	jpegContent := "\xFF\xD8\xFF\xE0jpeg-data"
+	for len(jpegContent) < minSize {
+		jpegContent += "\x00"
+	}
+	jpegPath := writeFixture(t, repo, "photo.jpg", jpegContent)
+	_, err := LogStep(store, run, LogStepOptions{
+		ScenarioID:     "happy-path",
+		SessionID:      "jpeg-session",
+		Surface:        SurfaceBrowser,
+		ScreenshotPath: jpegPath,
+		Action:         testAction,
+		Observation:    testObservation,
+		Comparison:     testComparison,
+	})
+	if err != nil {
+		t.Fatalf("expected JPEG to be accepted, got: %v", err)
+	}
+}
+
+func TestIsImageHeader(t *testing.T) {
+	tests := []struct {
+		name   string
+		header []byte
+		want   bool
+	}{
+		{"PNG", []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, true},
+		{"JPEG", []byte{0xFF, 0xD8, 0xFF, 0xE0}, true},
+		{"GIF", []byte("GIF89a"), true},
+		{"WebP", []byte("RIFF\x00\x00\x00\x00WEBP"), true},
+		{"text", []byte("hello world"), false},
+		{"empty", []byte{}, false},
+		{"short", []byte{0x89, 'P'}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isImageHeader(tc.header)
+			if got != tc.want {
+				t.Fatalf("isImageHeader(%v) = %v, want %v", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLogStepBadScreenshot(t *testing.T) {
 	store, run, _ := setupLogFixture(t)
 	_, err := LogStep(store, run, LogStepOptions{

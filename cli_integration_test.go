@@ -183,7 +183,8 @@ func writeIntegrationFixture(t *testing.T, dir, name, content string) string {
 func writeIntegrationScreenshot(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	minSize := 10*1024 + 1
-	padded := content
+	// Prepend PNG magic bytes so the format check passes.
+	padded := "\x89PNG\r\n\x1a\n" + content
 	for len(padded) < minSize {
 		padded += "\x00"
 	}

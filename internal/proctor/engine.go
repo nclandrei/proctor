@@ -256,6 +256,9 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
 		return err
 	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -358,6 +361,9 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	artifacts = append(artifacts, reportArtifact)
 
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
 		return err
 	}
 	maxAge := opts.MaxScreenshotAge
@@ -542,6 +548,9 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
 		return err
 	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -656,6 +665,9 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	artifacts = append(artifacts, reportArtifact)
 
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
 		return err
 	}
 	maxAge := opts.MaxScreenshotAge
@@ -1100,6 +1112,9 @@ func LogStep(store *Store, run Run, opts LogStepOptions) (ScreenshotLogEntry, er
 	artifacts := []Artifact{artifact}
 
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
 		return ScreenshotLogEntry{}, err
 	}
 	if err := validateScreenshotFreshness(artifacts, DefaultMaxScreenshotAge); err != nil {
@@ -2355,6 +2370,49 @@ func validateScreenshotSize(store *Store, run Run, artifacts []Artifact, minSize
 		}
 	}
 	return nil
+}
+
+func validateScreenshotFormat(store *Store, run Run, artifacts []Artifact) error {
+	for _, artifact := range artifacts {
+		if artifact.Kind != ArtifactImage {
+			continue
+		}
+		path := filepath.Join(store.RunDir(run), artifact.Path)
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("cannot open screenshot %q: %w", artifact.Label, err)
+		}
+		header := make([]byte, 12)
+		n, _ := f.Read(header)
+		f.Close()
+		if n < 4 {
+			return fmt.Errorf("screenshot %q is not a valid image file (too short to detect format)", artifact.Label)
+		}
+		if !isImageHeader(header[:n]) {
+			return fmt.Errorf("screenshot %q is not a valid image file; expected PNG, JPEG, GIF, or WebP", artifact.Label)
+		}
+	}
+	return nil
+}
+
+// isImageHeader checks if the byte slice starts with a known image format
+// magic sequence: PNG (\x89PNG), JPEG (\xFF\xD8\xFF), GIF (GIF8), or
+// WebP (RIFF....WEBP).
+func isImageHeader(header []byte) bool {
+	if len(header) >= 4 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G' {
+		return true
+	}
+	if len(header) >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
+		return true
+	}
+	if len(header) >= 4 && header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8' {
+		return true
+	}
+	if len(header) >= 12 && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F' &&
+		header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P' {
+		return true
+	}
+	return false
 }
 
 func validateScreenshotFreshness(artifacts []Artifact, maxAge time.Duration) error {
