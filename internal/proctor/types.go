@@ -460,41 +460,6 @@ func (s ScenarioEvaluation) SurfaceIssues(surface string) []string {
 	}
 }
 
-// ScreenshotLogEntry is one step in the agent's verification walkthrough.
-// The agent logs each action it takes along with a screenshot, building
-// a chronological visual record of the verification process.
-type ScreenshotLogEntry struct {
-	ID             string    `json:"id"`
-	RunID          string    `json:"run_id"`
-	ScenarioID     string    `json:"scenario_id"`
-	SessionID      string    `json:"session_id"`
-	Surface        string    `json:"surface"`
-	Step           int       `json:"step"`
-	Action         string    `json:"action"`
-	ScreenshotPath string    `json:"screenshot_path"`
-	SHA256         string    `json:"sha256"`
-	CreatedAt      time.Time `json:"created_at"`
-}
-
-// VisionAnalysis is an AI vision model's analysis of a screenshot.
-// It records what the model sees, how it compares to the scenario
-// requirements, and whether the visual state matches expectations.
-type VisionAnalysis struct {
-	ID             string    `json:"id"`
-	RunID          string    `json:"run_id"`
-	ScenarioID     string    `json:"scenario_id"`
-	EvidenceID     string    `json:"evidence_id,omitempty"`
-	LogEntryID     string    `json:"log_entry_id,omitempty"`
-	ScreenshotPath string    `json:"screenshot_path"`
-	Description    string    `json:"description"`
-	Comparison     string    `json:"comparison"`
-	Findings       []string  `json:"findings"`
-	Concerns       []string  `json:"concerns"`
-	MatchesIntent  bool      `json:"matches_intent"`
-	Model          string    `json:"model"`
-	AnalyzedAt     time.Time `json:"analyzed_at"`
-}
-
 func normalizePlatform(platform string) string {
 	switch strings.ToLower(strings.TrimSpace(platform)) {
 	case "", PlatformWeb:
