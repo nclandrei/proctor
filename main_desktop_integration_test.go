@@ -73,7 +73,20 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
 			}
 		}
 
-		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+		for i, scenarioID := range []string{"happy-path", "failure-path"} {
+			logShot := writeCLIScreenshot(t, repoRoot, fmt.Sprintf("log-%d.png", i), fmt.Sprintf("log-image-%s", scenarioID))
+			if err := run([]string{
+				"log",
+				"--scenario", scenarioID,
+				"--session", "firefox-desktop-1",
+				"--surface", "desktop",
+				"--screenshot", logShot,
+				"--action", "opened Firefox bookmark manager and inspected the window for " + scenarioID,
+				"--observation", "Firefox bookmark manager window visible with Bookmarks title and saved entries",
+				"--comparison", "matches the " + scenarioID + " scenario requirements from the contract",
+			}); err != nil {
+				t.Fatal(err)
+			}
 			if err := run([]string{
 				"verify",
 				"--scenario", scenarioID,

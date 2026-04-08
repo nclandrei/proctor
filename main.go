@@ -151,6 +151,11 @@ func runStatus(store *proctor.Store, cwd string) error {
 				fmt.Printf("  curl contract: %s\n", strings.Join(item.Scenario.CurlEndpoints, "; "))
 			}
 		}
+		if item.LogOK {
+			fmt.Printf("  log: pass\n")
+		} else {
+			fmt.Printf("  log: missing (run proctor log --scenario %s --session <session> --surface <surface> --screenshot <path> --action '...' --observation '...' --comparison '...')\n", item.Scenario.ID)
+		}
 		for _, surface := range item.Scenario.RequiredSurfaces() {
 			ok, _ := item.SurfaceStatus(surface)
 			if ok {
@@ -534,6 +539,9 @@ func runDone(store *proctor.Store, cwd string) error {
 	}
 	fmt.Println("FAIL")
 	for _, item := range eval.ScenarioEvaluations {
+		if !item.LogOK {
+			fmt.Printf("- %s (log): %s\n", item.Scenario.ID, strings.Join(item.LogIssues, ", "))
+		}
 		for _, surface := range item.Scenario.RequiredSurfaces() {
 			ok, _ := item.SurfaceStatus(surface)
 			if ok {

@@ -415,6 +415,7 @@ func TestCompleteRunAcceptsFreshRun(t *testing.T) {
 		}
 	}
 
+	logStepsForAll(t, store, run, repo, "browser-1")
 	verifyAllScenarios(t, store, run, testObservationNotes)
 
 	// Run was just created — should not be expired.

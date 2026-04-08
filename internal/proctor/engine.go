@@ -730,6 +730,14 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	for _, note := range preNotes {
 		preNoteScenarios[note.Scenario] = true
 	}
+	logEntries, err := store.ScreenshotLogLedger(run).Load()
+	if err != nil {
+		return Evaluation{}, err
+	}
+	logScenarios := map[string]int{}
+	for _, entry := range logEntries {
+		logScenarios[entry.ScenarioID]++
+	}
 
 	eval := Evaluation{Complete: true}
 
@@ -819,6 +827,18 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 			if !scenarioEval.DesktopOK {
 				eval.Complete = false
 			}
+		}
+
+		// Log step check: every scenario must have at least one step-by-step
+		// verification log entry showing what the agent did, saw, and compared.
+		if logScenarios[scenario.ID] > 0 {
+			scenarioEval.LogOK = true
+		} else {
+			scenarioEval.LogIssues = []string{
+				fmt.Sprintf("no verification log entries; run proctor log --scenario %s --session <session> --surface <surface> --screenshot <path> --action '...' --observation '...' --comparison '...'",
+					scenario.ID),
+			}
+			eval.Complete = false
 		}
 
 		eval.ScenarioEvaluations = append(eval.ScenarioEvaluations, scenarioEval)

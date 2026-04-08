@@ -108,6 +108,28 @@ func (fx *verifyFixture) filePreNoteCLI(t *testing.T, scenarioID, sessionID stri
 	)
 }
 
+// logStepAllScenariosCLI logs a verification step for each scenario via the
+// proctor log CLI command. This satisfies the log gate for proctor done.
+func (fx *verifyFixture) logStepAllScenariosCLI(t *testing.T, sessionID string, scenarios []string) {
+	t.Helper()
+	for _, scenarioID := range scenarios {
+		screenshot := fx.happyShot
+		if scenarioID == "failure-path" {
+			screenshot = fx.failureShot
+		}
+		runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome,
+			"log",
+			"--scenario", scenarioID,
+			"--session", sessionID,
+			"--surface", "cli",
+			"--screenshot", screenshot,
+			"--action", "executed the demo help command for "+scenarioID+" scenario verification",
+			"--observation", "terminal shows the "+scenarioID+" output with the expected text and no errors visible",
+			"--comparison", "output matches the "+scenarioID+" scenario requirements as defined in the contract",
+		)
+	}
+}
+
 // recordCLIScenario records a CLI scenario using the fixture's pre-written
 // screenshot+transcript pair. The scenario must already exist in the current
 // run (i.e. "happy-path" or "failure-path").
@@ -184,6 +206,7 @@ func TestVerifyFlow_HappyPath(t *testing.T) {
 	fx.startCLIRun(t)
 	fx.recordAllCLIScenarios(t, "verify-session-1")
 
+	fx.logStepAllScenariosCLI(t, "verify-session-1", []string{"happy-path", "failure-path"})
 	verifyAllScenariosCLI(t, fx.binary, fx.repoRoot, fx.proctorHome, "verify-session-1", []string{"happy-path", "failure-path"})
 
 	doneOutput := runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome, "done")
@@ -293,6 +316,7 @@ func TestVerifyFlow_MultipleScenariosAllNeedVerify(t *testing.T) {
 	fx := newVerifyFixture(t)
 	fx.startCLIRun(t)
 	fx.recordAllCLIScenarios(t, "partial-verify-session")
+	fx.logStepAllScenariosCLI(t, "partial-verify-session", []string{"happy-path", "failure-path"})
 
 	// Verify only happy-path and confirm done still fails and names the
 	// unverified failure-path scenario.

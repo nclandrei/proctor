@@ -275,6 +275,7 @@ func TestDonePassesWhenRequiredDesktopEvidenceExists(t *testing.T) {
 		}
 	}
 
+	logStepsForAll(t, store, run, repo, "firefox-desktop-1")
 	verifyAllScenarios(t, store, run, testObservationNotes)
 
 	eval, err := CompleteRun(store, run)

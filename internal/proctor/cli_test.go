@@ -105,6 +105,7 @@ func TestRecordCLICompletesRunWithStructuredAssertions(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	logStepsForAll(t, store, run, repo, "cli-session-1")
 	verifyAllScenarios(t, store, run, testObservationNotes)
 
 	eval, err := CompleteRun(store, run)

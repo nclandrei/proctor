@@ -384,11 +384,13 @@ type ScenarioEvaluation struct {
 	CurlOK        bool
 	CLIOK         bool
 	DesktopOK     bool
+	LogOK         bool
 	BrowserIssues []string
 	IOSIssues     []string
 	CurlIssues    []string
 	CLIIssues     []string
 	DesktopIssues []string
+	LogIssues     []string
 }
 
 func (s Scenario) RequiredSurfaces() []string {
