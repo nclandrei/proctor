@@ -32,7 +32,10 @@ const (
 	EvidenceStatusPending  = "pending-verification"
 	EvidenceStatusComplete = "complete"
 
-	MinObservationNotesLength = 20
+	MinObservationNotesLength = 40
+	MinPreNoteLength          = 20
+	MinActionLength           = 20
+	MinDistinctWords          = 4
 	ArtifactImage             = "image"
 	ArtifactJSONReport        = "json-report"
 	ArtifactTranscript        = "transcript"

@@ -267,8 +267,8 @@ func TestVerifyFlow_ShortNotesRejected(t *testing.T) {
 		"--session", "short-notes-session",
 		"--notes", "ok",
 	)
-	if !strings.Contains(output, "must describe what you see") {
-		t.Fatalf("expected short-notes rejection to mention the minimum-length rule, got:\n%s", output)
+	if !strings.Contains(output, "must be specific") {
+		t.Fatalf("expected quality rejection to mention specificity rule, got:\n%s", output)
 	}
 	if !strings.Contains(output, "got 2 chars") {
 		t.Fatalf("expected rejection to report observed char count, got:\n%s", output)

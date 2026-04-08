@@ -1076,29 +1076,23 @@ func LogStep(store *Store, run Run, opts LogStepOptions) (ScreenshotLogEntry, er
 	if action == "" {
 		return ScreenshotLogEntry{}, fmt.Errorf("log step: --action is required")
 	}
-	if len(action) < MinObservationNotesLength {
+	if len(action) < MinActionLength {
 		return ScreenshotLogEntry{}, fmt.Errorf(
 			"action must describe what you did (got %d chars, minimum %d)",
-			len(action), MinObservationNotesLength,
+			len(action), MinActionLength,
 		)
 	}
 	if observation == "" {
 		return ScreenshotLogEntry{}, fmt.Errorf("log step: --observation is required (describe what you see in the screenshot)")
 	}
-	if len(observation) < MinObservationNotesLength {
-		return ScreenshotLogEntry{}, fmt.Errorf(
-			"observation must describe what you see in the screenshot (got %d chars, minimum %d)",
-			len(observation), MinObservationNotesLength,
-		)
+	if err := validateObservationQuality(observation, "observation", MinObservationNotesLength); err != nil {
+		return ScreenshotLogEntry{}, err
 	}
 	if comparison == "" {
 		return ScreenshotLogEntry{}, fmt.Errorf("log step: --comparison is required (explain how what you see compares to the scenario)")
 	}
-	if len(comparison) < MinObservationNotesLength {
-		return ScreenshotLogEntry{}, fmt.Errorf(
-			"comparison must explain how what you see relates to the scenario (got %d chars, minimum %d)",
-			len(comparison), MinObservationNotesLength,
-		)
+	if err := validateObservationQuality(comparison, "comparison", MinObservationNotesLength); err != nil {
+		return ScreenshotLogEntry{}, err
 	}
 	if _, ok := findScenario(run, scenarioID); !ok {
 		return ScreenshotLogEntry{}, fmt.Errorf("unknown scenario: %s", scenarioID)
@@ -1167,11 +1161,8 @@ func VerifyEvidence(store *Store, run Run, scenarioID, sessionID, notes string) 
 	if trimmedNotes == "" {
 		return fmt.Errorf("notes required: describe what you see in the screenshot")
 	}
-	if len(trimmedNotes) < MinObservationNotesLength {
-		return fmt.Errorf(
-			"observation notes must describe what you see in the screenshot (got %d chars, minimum %d)",
-			len(trimmedNotes), MinObservationNotesLength,
-		)
+	if err := validateObservationQuality(trimmedNotes, "observation notes", MinObservationNotesLength); err != nil {
+		return err
 	}
 
 	records, err := store.loadEvidenceRaw(run)
@@ -1226,10 +1217,10 @@ func FilePreNote(store *Store, run Run, scenarioID, sessionID, notes string) (Pr
 	if trimmedNotes == "" {
 		return PreNote{}, fmt.Errorf("pre-test note: --notes is required")
 	}
-	if len(trimmedNotes) < MinObservationNotesLength {
+	if len(trimmedNotes) < MinPreNoteLength {
 		return PreNote{}, fmt.Errorf(
 			"pre-test notes must describe what you are about to test (got %d chars, minimum %d)",
-			len(trimmedNotes), MinObservationNotesLength,
+			len(trimmedNotes), MinPreNoteLength,
 		)
 	}
 	if _, ok := findScenario(run, scenarioID); !ok {
@@ -2413,6 +2404,76 @@ func isImageHeader(header []byte) bool {
 		return true
 	}
 	return false
+}
+
+// vaqueObservationPhrases are filler phrases that indicate the agent did not
+// actually look at the screenshot. When an observation or comparison contains
+// nothing but one of these, it gets rejected.
+var vagueObservationPhrases = []string{
+	"looks good",
+	"looks correct",
+	"looks fine",
+	"looks right",
+	"looks ok",
+	"looks okay",
+	"as expected",
+	"seems fine",
+	"seems correct",
+	"seems good",
+	"seems right",
+	"no issues",
+	"no problems",
+	"everything works",
+	"everything is fine",
+	"all good",
+	"all correct",
+	"nothing wrong",
+	"works as expected",
+	"matches expectations",
+	"lgtm",
+}
+
+// validateObservationQuality checks that an observation or comparison is
+// specific enough to be useful. It rejects:
+//   - text shorter than minLen characters
+//   - text with fewer than MinDistinctWords distinct words
+//   - text that is entirely a known vague filler phrase
+func validateObservationQuality(text, fieldName string, minLen int) error {
+	if len(text) < minLen {
+		return fmt.Errorf(
+			"%s must be specific and descriptive (got %d chars, minimum %d)",
+			fieldName, len(text), minLen,
+		)
+	}
+	words := distinctWords(text)
+	if words < MinDistinctWords {
+		return fmt.Errorf(
+			"%s must use at least %d distinct words to be meaningful (got %d); describe specific UI elements, text, or state you see",
+			fieldName, MinDistinctWords, words,
+		)
+	}
+	lower := strings.ToLower(strings.TrimSpace(text))
+	for _, phrase := range vagueObservationPhrases {
+		if lower == phrase {
+			return fmt.Errorf(
+				"%s is too vague (%q); describe specific elements visible in the screenshot",
+				fieldName, text,
+			)
+		}
+	}
+	return nil
+}
+
+func distinctWords(text string) int {
+	seen := map[string]bool{}
+	for _, word := range strings.Fields(strings.ToLower(text)) {
+		// Strip common punctuation so "dashboard," counts as "dashboard".
+		word = strings.Trim(word, ".,;:!?\"'()-")
+		if word != "" {
+			seen[word] = true
+		}
+	}
+	return len(seen)
 }
 
 func validateScreenshotFreshness(artifacts []Artifact, maxAge time.Duration) error {

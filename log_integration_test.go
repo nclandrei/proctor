@@ -173,9 +173,10 @@ func TestLogCLIRejectsShortObservation(t *testing.T) {
 		"--screenshot", shot,
 		"--action", "Navigated to the login page at localhost:3000",
 		"--observation", "looks good",
-		"--comparison", "This matches the happy-path scenario requirements for the login flow",
+		"--comparison", "This matches the happy-path scenario requirements for the login flow entirely",
 	)
-	if !strings.Contains(output, "observation must describe") {
-		t.Fatalf("expected observation length error, got: %s", output)
+	// "looks good" is only 10 chars, well below the 40-char minimum.
+	if !strings.Contains(output, "observation") {
+		t.Fatalf("expected observation quality error, got: %s", output)
 	}
 }

@@ -97,8 +97,8 @@ func TestVerifyEvidenceRequiresMinNotesLength(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected short notes to be rejected")
 	}
-	if !strings.Contains(err.Error(), "must describe what you see") {
-		t.Fatalf("expected observation-notes length error, got: %v", err)
+	if !strings.Contains(err.Error(), "must be specific") {
+		t.Fatalf("expected observation quality error, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), fmt.Sprintf("got %d chars", len("too short"))) {
 		t.Fatalf("expected error to mention observed char count, got: %v", err)

@@ -166,7 +166,8 @@ Gates that force the agent to slow down and look:
   done refuses while any scenario has pending-verification evidence
   done refuses if any scenario has no pre-note filed
 
-Minimum note length: 20 characters (pre-note AND post-verify observation).
+Minimum lengths: pre-note 20 chars, observations/comparisons 40 chars + 4 distinct words.
+Vague filler like "looks good" or "as expected" is rejected.
 
 ---
 
@@ -1141,8 +1142,8 @@ Required:
   --surface SURFACE      One of: browser, ios, cli, desktop
   --screenshot PATH      Absolute path to the screenshot from this step
   --action TEXT          What the agent did at this step (minimum 20 characters)
-  --observation TEXT     What the agent sees in the screenshot (minimum 20 characters)
-  --comparison TEXT      How what the agent sees compares to the scenario (minimum 20 characters)
+  --observation TEXT     What the agent sees in the screenshot (minimum 40 chars, 4+ distinct words)
+  --comparison TEXT      How what the agent sees compares to the scenario (minimum 40 chars, 4+ distinct words)
 
 proctor log is the Showboat pattern: the agent takes a screenshot, LOOKS
 AT IT with its own vision, writes down what it actually sees, and explains
@@ -1164,8 +1165,19 @@ verification process.
 The log is optional for proctor done to pass, but agents that log their
 steps produce richer evidence and more trustworthy verification.
 
-Action, observation, and comparison must each be at least 20 characters.
-Generic notes like "looks good" or "as expected" are not specific enough.
+Actions must be at least 20 characters. Observations and comparisons must
+be at least 40 characters with 4+ distinct words. Vague filler phrases
+like "looks good", "as expected", or "no issues" are rejected outright.
+
+Good observations name specific visible elements:
+  bad:  "the page looks correct as expected"
+  good: "login form with email input, password input, blue Sign In button,
+         and a Forgot password? link below the form"
+
+Good comparisons reference the scenario requirements:
+  bad:  "this matches what was expected of the scenario"
+  good: "the dashboard greeting shows the user email matching the happy-path
+         requirement that valid credentials redirect to the dashboard"
 
 Example workflow (web login verification):
 
@@ -1203,7 +1215,7 @@ Usage:
 Required:
   --scenario ID      Scenario id matching a recorded evidence entry
   --session SESSION  Session id used when the evidence was recorded
-  --notes TEXT       Free-text observation (minimum 20 characters)
+  --notes TEXT       Free-text observation (minimum 40 chars, 4+ distinct words)
 
 Every proctor record command marks its evidence pending-verification. The
 agent is expected to:
