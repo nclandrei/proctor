@@ -394,6 +394,64 @@ func TestStatusHelpMentionsPreNoteVisibility(t *testing.T) {
 	}
 }
 
+func TestLogHelpDescribesShowboatPattern(t *testing.T) {
+	text, ok, err := commandHelp([]string{"log", "--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"proctor log - record a verification step",
+		"--scenario ID",
+		"--session SESSION",
+		"--surface SURFACE",
+		"--screenshot PATH",
+		"--action TEXT",
+		"--observation TEXT",
+		"--comparison TEXT",
+		"Showboat pattern",
+		"LOOK AT IT",
+		"screenshot-log.jsonl",
+		"minimum 20 characters",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected log help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
+func TestHelpTopicSupportsLog(t *testing.T) {
+	text, err := topicHelp([]string{"log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "proctor log - record a verification step") {
+		t.Fatalf("expected log topic help, got:\n%s", text)
+	}
+}
+
+func TestRootHelpMentionsLog(t *testing.T) {
+	text, ok, err := commandHelp([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected help to be handled")
+	}
+	for _, needle := range []string{
+		"proctor log",
+		"proctor log --help",
+		"what you did, what you see, how it compares",
+		"Showboat pattern",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected root help to mention %q, got:\n%s", needle, text)
+		}
+	}
+}
+
 func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 	text, ok, err := commandHelp([]string{"start", "--help"})
 	if err != nil {

@@ -37,6 +37,10 @@ func commandHelp(args []string) (string, bool, error) {
 		if wantsHelp(args[1:]) {
 			return noteHelpText(), true, nil
 		}
+	case "log":
+		if wantsHelp(args[1:]) {
+			return logHelpText(), true, nil
+		}
 	case "verify":
 		if wantsHelp(args[1:]) {
 			return verifyHelpText(), true, nil
@@ -95,6 +99,8 @@ func topicHelp(args []string) (string, error) {
 		return statusHelpText(), nil
 	case "note":
 		return noteHelpText(), nil
+	case "log":
+		return logHelpText(), nil
 	case "verify":
 		return verifyHelpText(), nil
 	case "done":
@@ -139,6 +145,7 @@ func rootHelpText() string {
 Quick reference (the verification loop, one pass per scenario):
   proctor start   -> define happy path, failure path, and edge-case scenarios
   proctor note    -> commit to intent BEFORE screenshotting ("what I'm about to test")
+  proctor log     -> screenshot each step: what you did, what you see, how it compares
   proctor record  -> attach the screenshot + report + assertions
   proctor verify  -> re-read the screenshot, write what you actually saw
   proctor done    -> passes only if every scenario has note + record + verify
@@ -147,11 +154,12 @@ Commands:
   start       create a verification contract with happy/failure/edge scenarios
   status      show contract state: missing notes, pending verifications, gaps
   note        file pre-test intent for a (scenario, session) BEFORE recording
+  log         record a step: action + screenshot + what you see + how it compares
   record      attach evidence (screenshots, reports, transcripts) to a scenario
   verify      write observation notes after re-reading the recorded screenshot
   done        enforce contract; fails if any scenario is incomplete
   report      generate HTML/markdown summary for the run
-  help TOPIC  detailed help (start | note | record | verify | done | status | report)
+  help TOPIC  detailed help (start | note | log | record | verify | done | status | report)
 
 Gates that force the agent to slow down and look:
   record refuses without a pre-note for (scenario, session)
@@ -176,7 +184,10 @@ Mandatory next step for the agent after reading this help:
   2. run proctor start with the right platform for that feature
   3. file a pre-test note for each scenario with proctor note --scenario X
      --session Y --notes "what I am about to test" BEFORE recording
-  4. perform the actual manual checks
+  4. perform the actual manual checks, logging each step with proctor log:
+     take a screenshot, LOOK AT IT, describe what you see, explain how it
+     compares to the scenario. This is the Showboat pattern: you have eyes,
+     use them, and write down what you actually see at every step.
   5. attach evidence with the relevant proctor record command(s)
   6. re-read each recorded screenshot and call proctor verify with an
      observation describing what is actually visible in the image
@@ -466,6 +477,7 @@ What counts as CLI evidence:
 Use subcommand help for exact flags:
   proctor start --help
   proctor note --help
+  proctor log --help
   proctor record browser --help
   proctor record cli --help
   proctor record ios --help
@@ -1107,6 +1119,75 @@ Example:
     --scenario happy-path \
     --session auth-browser-1 \
     --notes "about to log in with demo@example.com and expect redirect to /dashboard with a Sign out link"
+`
+}
+
+func logHelpText() string {
+	return `proctor log - record a verification step with screenshot + observation
+
+Usage:
+  proctor log \
+    --scenario ID \
+    --session SESSION \
+    --surface SURFACE \
+    --screenshot /abs/path/step.png \
+    --action "what I just did" \
+    --observation "what I see in the screenshot" \
+    --comparison "how what I see relates to the scenario"
+
+Required:
+  --scenario ID          Scenario id from contract.md or proctor status
+  --session SESSION      Stable session id (reuse for proctor record later)
+  --surface SURFACE      One of: browser, ios, cli, desktop
+  --screenshot PATH      Absolute path to the screenshot from this step
+  --action TEXT          What the agent did at this step (minimum 20 characters)
+  --observation TEXT     What the agent sees in the screenshot (minimum 20 characters)
+  --comparison TEXT      How what the agent sees compares to the scenario (minimum 20 characters)
+
+proctor log is the Showboat pattern: the agent takes a screenshot, LOOKS
+AT IT with its own vision, writes down what it actually sees, and explains
+how that compares to what the scenario requires. Proctor enforces the
+structure; the agent provides the eyes.
+
+Each call captures one step. The agent is expected to:
+
+  1. Do something (navigate, click, type, run a command)
+  2. Take a screenshot of the result
+  3. Open that screenshot and LOOK AT IT
+  4. Describe what is actually visible: UI elements, text, layout, state
+  5. Explain how what it sees compares to the scenario's requirements
+
+Steps are stored in screenshot-log.jsonl and included in the verification
+report. They build a chronological visual audit trail of the entire
+verification process.
+
+The log is optional for proctor done to pass, but agents that log their
+steps produce richer evidence and more trustworthy verification.
+
+Action, observation, and comparison must each be at least 20 characters.
+Generic notes like "looks good" or "as expected" are not specific enough.
+
+Example workflow (web login verification):
+
+  proctor log \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --surface browser \
+    --screenshot /tmp/step1-login-page.png \
+    --action "Navigated to http://127.0.0.1:3000/login" \
+    --observation "Login form with email input, password input, and blue Sign In button. Page title is Login. No errors visible." \
+    --comparison "Login page is present as expected. The scenario needs valid credentials to redirect to dashboard - ready to enter them."
+
+  proctor log \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --surface browser \
+    --screenshot /tmp/step2-filled-form.png \
+    --action "Entered demo@example.com in email field and typed password, then clicked Sign In" \
+    --observation "Page is now showing the dashboard. URL bar shows /dashboard. Greeting says Hello, demo@example.com. Sign out button visible top-right." \
+    --comparison "This matches the happy-path scenario: valid credentials redirected to the dashboard with the user greeting visible."
+
+Steps are numbered automatically per (scenario, session) pair.
 `
 }
 

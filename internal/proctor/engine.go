@@ -1002,6 +1002,112 @@ func CompleteRun(store *Store, run Run) (Evaluation, error) {
 // Status=pending-verification; the agent is expected to re-read its own
 // screenshot, write a short textual observation of what it saw, and commit
 // that observation via this function. VerifyEvidence locates the latest
+// LogStepOptions contains the parameters for logging a verification step.
+type LogStepOptions struct {
+	ScenarioID     string
+	SessionID      string
+	Surface        string
+	ScreenshotPath string
+	Action         string // what the agent did
+	Observation    string // what the agent sees in the screenshot
+	Comparison     string // how what it sees compares to the scenario
+}
+
+// LogStep records one step in the agent's verification walkthrough.
+//
+// The agent is expected to:
+//  1. Perform an action (navigate, click, type, etc.)
+//  2. Take a screenshot of the result
+//  3. Look at the screenshot with its own vision capability
+//  4. Describe what it actually sees (observation)
+//  5. Explain how what it sees compares to the scenario requirements (comparison)
+//
+// This is the Showboat pattern: the agent narrates its own verification
+// process with real visual evidence at every step. Proctor enforces the
+// structure; the agent provides the eyes.
+func LogStep(store *Store, run Run, opts LogStepOptions) (ScreenshotLogEntry, error) {
+	scenarioID := strings.TrimSpace(opts.ScenarioID)
+	sessionID := strings.TrimSpace(opts.SessionID)
+	surface := strings.TrimSpace(opts.Surface)
+	action := strings.TrimSpace(opts.Action)
+	observation := strings.TrimSpace(opts.Observation)
+	comparison := strings.TrimSpace(opts.Comparison)
+	screenshotPath := strings.TrimSpace(opts.ScreenshotPath)
+
+	if scenarioID == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --scenario is required")
+	}
+	if sessionID == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --session is required")
+	}
+	if surface == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --surface is required")
+	}
+	if screenshotPath == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --screenshot is required")
+	}
+	if action == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --action is required")
+	}
+	if len(action) < MinObservationNotesLength {
+		return ScreenshotLogEntry{}, fmt.Errorf(
+			"action must describe what you did (got %d chars, minimum %d)",
+			len(action), MinObservationNotesLength,
+		)
+	}
+	if observation == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --observation is required (describe what you see in the screenshot)")
+	}
+	if len(observation) < MinObservationNotesLength {
+		return ScreenshotLogEntry{}, fmt.Errorf(
+			"observation must describe what you see in the screenshot (got %d chars, minimum %d)",
+			len(observation), MinObservationNotesLength,
+		)
+	}
+	if comparison == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --comparison is required (explain how what you see compares to the scenario)")
+	}
+	if len(comparison) < MinObservationNotesLength {
+		return ScreenshotLogEntry{}, fmt.Errorf(
+			"comparison must explain how what you see relates to the scenario (got %d chars, minimum %d)",
+			len(comparison), MinObservationNotesLength,
+		)
+	}
+	if _, ok := findScenario(run, scenarioID); !ok {
+		return ScreenshotLogEntry{}, fmt.Errorf("unknown scenario: %s", scenarioID)
+	}
+
+	artifact, err := store.CopyArtifact(run, surface, scenarioID, "log-step", screenshotPath)
+	if err != nil {
+		return ScreenshotLogEntry{}, fmt.Errorf("copy screenshot: %w", err)
+	}
+
+	ledger := store.ScreenshotLogLedger(run)
+	step, err := ledger.NextStep(scenarioID, sessionID)
+	if err != nil {
+		return ScreenshotLogEntry{}, fmt.Errorf("determine step number: %w", err)
+	}
+
+	entry := ScreenshotLogEntry{
+		ID:             newID("log"),
+		RunID:          run.ID,
+		ScenarioID:     scenarioID,
+		SessionID:      sessionID,
+		Surface:        surface,
+		Step:           step,
+		Action:         action,
+		ScreenshotPath: artifact.Path,
+		SHA256:         artifact.SHA256,
+		Observation:    observation,
+		Comparison:     comparison,
+		CreatedAt:      time.Now().UTC(),
+	}
+	if err := ledger.Append(entry); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	return entry, nil
+}
+
 // evidence record for the given scenario+session, validates the notes, then
 // appends a new evidence entry with the same ID, Status=complete, and the
 // notes attached. Because LoadEvidence collapses to latest-per-ID, this
