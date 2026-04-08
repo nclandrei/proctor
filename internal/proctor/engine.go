@@ -997,11 +997,6 @@ func CompleteRun(store *Store, run Run) (Evaluation, error) {
 	return eval, nil
 }
 
-// VerifyEvidence closes the verification loop for a single evidence record.
-// After recording, every piece of evidence is written with
-// Status=pending-verification; the agent is expected to re-read its own
-// screenshot, write a short textual observation of what it saw, and commit
-// that observation via this function. VerifyEvidence locates the latest
 // LogStepOptions contains the parameters for logging a verification step.
 type LogStepOptions struct {
 	ScenarioID     string
