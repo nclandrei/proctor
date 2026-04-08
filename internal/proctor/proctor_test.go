@@ -1016,6 +1016,7 @@ func TestDonePassesWhenRequiredEvidenceExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	logStepsForAll(t, store, run, repo, "browser-1")
 	verifyAllScenarios(t, store, run, testObservationNotes)
 
 	eval, err := CompleteRun(store, run)
@@ -1816,7 +1817,8 @@ func writeFixture(t *testing.T, dir, name, content string) string {
 func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	minSize := int(DefaultMinScreenshotSize) + 1
-	padded := content
+	// Prepend PNG magic bytes so the format check passes.
+	padded := "\x89PNG\r\n\x1a\n" + content
 	for len(padded) < minSize {
 		padded += "\x00"
 	}
@@ -1892,6 +1894,41 @@ func verifyAllScenarios(t *testing.T, store *Store, run Run, notes string) {
 // the 20-character minimum for proctor verify. Tests use this when they only
 // need the verification gate to pass and the exact text is not under test.
 const testObservationNotes = "screenshot shows the expected view with the described UI elements visible"
+
+// logStepsForAll files a log entry for every scenario in the run. Tests
+// need this because the done gate now requires at least one log entry per
+// scenario. The default fixture keeps each test focused on the behaviour
+// under test rather than the log gate itself.
+func logStepsForAll(t *testing.T, store *Store, run Run, repo, session string) {
+	t.Helper()
+	for _, scenario := range run.Scenarios {
+		shot := writeScreenshotFixture(t, repo, "log-"+scenario.ID+".png", "log-image-"+scenario.ID)
+		if _, err := LogStep(store, run, LogStepOptions{
+			ScenarioID:     scenario.ID,
+			SessionID:      session,
+			Surface:        surfaceForPlatform(run.Platform),
+			ScreenshotPath: shot,
+			Action:         "verified the " + scenario.ID + " scenario end to end with fixture",
+			Observation:    "screenshot shows the expected state for " + scenario.ID + " with correct UI elements",
+			Comparison:     "what is visible matches the " + scenario.ID + " scenario requirements as described",
+		}); err != nil {
+			t.Fatalf("log step for scenario %s: %v", scenario.ID, err)
+		}
+	}
+}
+
+func surfaceForPlatform(platform string) string {
+	switch normalizePlatform(platform) {
+	case PlatformIOS:
+		return SurfaceIOS
+	case PlatformCLI:
+		return SurfaceCLI
+	case PlatformDesktop:
+		return SurfaceDesktop
+	default:
+		return SurfaceBrowser
+	}
+}
 
 func containsSubstring(values []string, needle string) bool {
 	for _, value := range values {

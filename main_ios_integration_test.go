@@ -84,7 +84,20 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
 			}
 		}
 
-		for _, scenarioID := range []string{"happy-path", "failure-path"} {
+		for i, scenarioID := range []string{"happy-path", "failure-path"} {
+			logShot := writeCLIScreenshot(t, repoRoot, fmt.Sprintf("log-%d.png", i), fmt.Sprintf("log-image-%s", scenarioID))
+			if err := run([]string{
+				"log",
+				"--scenario", scenarioID,
+				"--session", "pagena-library-1",
+				"--surface", "ios",
+				"--screenshot", logShot,
+				"--action", "launched the app and navigated to the library screen for " + scenarioID,
+				"--observation", "library screen visible with list of reader items and bottom navigation tabs",
+				"--comparison", "matches the " + scenarioID + " scenario requirements from the contract",
+			}); err != nil {
+				t.Fatal(err)
+			}
 			if err := run([]string{
 				"verify",
 				"--scenario", scenarioID,
@@ -186,7 +199,8 @@ func writeCLIFile(t *testing.T, dir, name, content string) string {
 func writeCLIScreenshot(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	minSize := 10*1024 + 1
-	padded := content
+	// Prepend PNG magic bytes so the format check passes.
+	padded := "\x89PNG\r\n\x1a\n" + content
 	for len(padded) < minSize {
 		padded += "\x00"
 	}

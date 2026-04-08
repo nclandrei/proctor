@@ -92,6 +92,23 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 		"--notes", "terminal shows error: prompt not found with no stack trace and a non-zero exit code",
 	)
 
+	for _, scenario := range []string{"happy-path", "failure-path"} {
+		shot := terminalShotHappy
+		if scenario == "failure-path" {
+			shot = terminalShotFailure
+		}
+		runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
+			"log",
+			"--scenario", scenario,
+			"--session", "integration-cli-1",
+			"--surface", "cli",
+			"--screenshot", shot,
+			"--action", "executed the demo command for "+scenario+" scenario verification",
+			"--observation", "terminal shows the "+scenario+" output with the expected text and no errors visible",
+			"--comparison", "output matches the "+scenario+" scenario requirements as defined in the contract",
+		)
+	}
+
 	statusOutput := runProctorCLI(t, proctorBinary, repoRoot, proctorHome, "status")
 	for _, needle := range []string{
 		"Run: ",
@@ -166,7 +183,8 @@ func writeIntegrationFixture(t *testing.T, dir, name, content string) string {
 func writeIntegrationScreenshot(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	minSize := 10*1024 + 1
-	padded := content
+	// Prepend PNG magic bytes so the format check passes.
+	padded := "\x89PNG\r\n\x1a\n" + content
 	for len(padded) < minSize {
 		padded += "\x00"
 	}

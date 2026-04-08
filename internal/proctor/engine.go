@@ -256,6 +256,9 @@ func RecordBrowser(store *Store, run Run, opts BrowserRecordOptions) error {
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
 		return err
 	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -358,6 +361,9 @@ func RecordIOS(store *Store, run Run, opts IOSRecordOptions) error {
 	artifacts = append(artifacts, reportArtifact)
 
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return err
+	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
 		return err
 	}
 	maxAge := opts.MaxScreenshotAge
@@ -542,6 +548,9 @@ func RecordCLI(store *Store, run Run, opts CLIRecordOptions) error {
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
 		return err
 	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -658,6 +667,9 @@ func RecordDesktop(store *Store, run Run, opts DesktopRecordOptions) error {
 	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
 		return err
 	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
+		return err
+	}
 	maxAge := opts.MaxScreenshotAge
 	if maxAge == 0 {
 		maxAge = DefaultMaxScreenshotAge
@@ -729,6 +741,14 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 	preNoteScenarios := map[string]bool{}
 	for _, note := range preNotes {
 		preNoteScenarios[note.Scenario] = true
+	}
+	logEntries, err := store.ScreenshotLogLedger(run).Load()
+	if err != nil {
+		return Evaluation{}, err
+	}
+	logScenarios := map[string]int{}
+	for _, entry := range logEntries {
+		logScenarios[entry.ScenarioID]++
 	}
 
 	eval := Evaluation{Complete: true}
@@ -819,6 +839,18 @@ func Evaluate(store *Store, run Run) (Evaluation, error) {
 			if !scenarioEval.DesktopOK {
 				eval.Complete = false
 			}
+		}
+
+		// Log step check: every scenario must have at least one step-by-step
+		// verification log entry showing what the agent did, saw, and compared.
+		if logScenarios[scenario.ID] > 0 {
+			scenarioEval.LogOK = true
+		} else {
+			scenarioEval.LogIssues = []string{
+				fmt.Sprintf("no verification log entries; run proctor log --scenario %s --session <session> --surface <surface> --screenshot <path> --action '...' --observation '...' --comparison '...'",
+					scenario.ID),
+			}
+			eval.Complete = false
 		}
 
 		eval.ScenarioEvaluations = append(eval.ScenarioEvaluations, scenarioEval)
@@ -997,11 +1029,121 @@ func CompleteRun(store *Store, run Run) (Evaluation, error) {
 	return eval, nil
 }
 
-// VerifyEvidence closes the verification loop for a single evidence record.
-// After recording, every piece of evidence is written with
-// Status=pending-verification; the agent is expected to re-read its own
-// screenshot, write a short textual observation of what it saw, and commit
-// that observation via this function. VerifyEvidence locates the latest
+// LogStepOptions contains the parameters for logging a verification step.
+type LogStepOptions struct {
+	ScenarioID     string
+	SessionID      string
+	Surface        string
+	ScreenshotPath string
+	Action         string // what the agent did
+	Observation    string // what the agent sees in the screenshot
+	Comparison     string // how what it sees compares to the scenario
+}
+
+// LogStep records one step in the agent's verification walkthrough.
+//
+// The agent is expected to:
+//  1. Perform an action (navigate, click, type, etc.)
+//  2. Take a screenshot of the result
+//  3. Look at the screenshot with its own vision capability
+//  4. Describe what it actually sees (observation)
+//  5. Explain how what it sees compares to the scenario requirements (comparison)
+//
+// This is the Showboat pattern: the agent narrates its own verification
+// process with real visual evidence at every step. Proctor enforces the
+// structure; the agent provides the eyes.
+func LogStep(store *Store, run Run, opts LogStepOptions) (ScreenshotLogEntry, error) {
+	scenarioID := strings.TrimSpace(opts.ScenarioID)
+	sessionID := strings.TrimSpace(opts.SessionID)
+	surface := strings.TrimSpace(opts.Surface)
+	action := strings.TrimSpace(opts.Action)
+	observation := strings.TrimSpace(opts.Observation)
+	comparison := strings.TrimSpace(opts.Comparison)
+	screenshotPath := strings.TrimSpace(opts.ScreenshotPath)
+
+	if scenarioID == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --scenario is required")
+	}
+	if sessionID == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --session is required")
+	}
+	if surface == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --surface is required")
+	}
+	if screenshotPath == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --screenshot is required")
+	}
+	if action == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --action is required")
+	}
+	if len(action) < MinActionLength {
+		return ScreenshotLogEntry{}, fmt.Errorf(
+			"action must describe what you did (got %d chars, minimum %d)",
+			len(action), MinActionLength,
+		)
+	}
+	if observation == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --observation is required (describe what you see in the screenshot)")
+	}
+	if err := validateObservationQuality(observation, "observation", MinObservationNotesLength); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if comparison == "" {
+		return ScreenshotLogEntry{}, fmt.Errorf("log step: --comparison is required (explain how what you see compares to the scenario)")
+	}
+	if err := validateObservationQuality(comparison, "comparison", MinObservationNotesLength); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if _, ok := findScenario(run, scenarioID); !ok {
+		return ScreenshotLogEntry{}, fmt.Errorf("unknown scenario: %s", scenarioID)
+	}
+
+	artifact, err := store.CopyArtifact(run, surface, scenarioID, "log-step", screenshotPath)
+	if err != nil {
+		return ScreenshotLogEntry{}, fmt.Errorf("copy screenshot: %w", err)
+	}
+	artifact.Kind = ArtifactImage
+	artifacts := []Artifact{artifact}
+
+	if err := validateScreenshotSize(store, run, artifacts, DefaultMinScreenshotSize); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if err := validateScreenshotFormat(store, run, artifacts); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if err := validateScreenshotFreshness(artifacts, DefaultMaxScreenshotAge); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	if err := detectDuplicateScreenshots(store, run, scenarioID, artifacts); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+
+	ledger := store.ScreenshotLogLedger(run)
+	step, err := ledger.NextStep(scenarioID, sessionID)
+	if err != nil {
+		return ScreenshotLogEntry{}, fmt.Errorf("determine step number: %w", err)
+	}
+
+	entry := ScreenshotLogEntry{
+		ID:             newID("log"),
+		RunID:          run.ID,
+		ScenarioID:     scenarioID,
+		SessionID:      sessionID,
+		Surface:        surface,
+		Step:           step,
+		Action:         action,
+		ScreenshotPath: artifact.Path,
+		SHA256:         artifact.SHA256,
+		Observation:    observation,
+		Comparison:     comparison,
+		CreatedAt:      time.Now().UTC(),
+	}
+	if err := ledger.Append(entry); err != nil {
+		return ScreenshotLogEntry{}, err
+	}
+	return entry, nil
+}
+
 // evidence record for the given scenario+session, validates the notes, then
 // appends a new evidence entry with the same ID, Status=complete, and the
 // notes attached. Because LoadEvidence collapses to latest-per-ID, this
@@ -1019,11 +1161,8 @@ func VerifyEvidence(store *Store, run Run, scenarioID, sessionID, notes string) 
 	if trimmedNotes == "" {
 		return fmt.Errorf("notes required: describe what you see in the screenshot")
 	}
-	if len(trimmedNotes) < MinObservationNotesLength {
-		return fmt.Errorf(
-			"observation notes must describe what you see in the screenshot (got %d chars, minimum %d)",
-			len(trimmedNotes), MinObservationNotesLength,
-		)
+	if err := validateObservationQuality(trimmedNotes, "observation notes", MinObservationNotesLength); err != nil {
+		return err
 	}
 
 	records, err := store.loadEvidenceRaw(run)
@@ -1078,10 +1217,10 @@ func FilePreNote(store *Store, run Run, scenarioID, sessionID, notes string) (Pr
 	if trimmedNotes == "" {
 		return PreNote{}, fmt.Errorf("pre-test note: --notes is required")
 	}
-	if len(trimmedNotes) < MinObservationNotesLength {
+	if len(trimmedNotes) < MinPreNoteLength {
 		return PreNote{}, fmt.Errorf(
 			"pre-test notes must describe what you are about to test (got %d chars, minimum %d)",
-			len(trimmedNotes), MinObservationNotesLength,
+			len(trimmedNotes), MinPreNoteLength,
 		)
 	}
 	if _, ok := findScenario(run, scenarioID); !ok {
@@ -1164,7 +1303,11 @@ func writeReports(store *Store, run Run) error {
 	if err != nil {
 		return err
 	}
-	markdown, html, err := RenderReports(run, store.RunDir(run), eval, evidence, preNotes)
+	logEntries, err := store.ScreenshotLogLedger(run).Load()
+	if err != nil {
+		return err
+	}
+	markdown, html, err := RenderReports(run, store.RunDir(run), eval, evidence, preNotes, logEntries)
 	if err != nil {
 		return err
 	}
@@ -2218,6 +2361,119 @@ func validateScreenshotSize(store *Store, run Run, artifacts []Artifact, minSize
 		}
 	}
 	return nil
+}
+
+func validateScreenshotFormat(store *Store, run Run, artifacts []Artifact) error {
+	for _, artifact := range artifacts {
+		if artifact.Kind != ArtifactImage {
+			continue
+		}
+		path := filepath.Join(store.RunDir(run), artifact.Path)
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("cannot open screenshot %q: %w", artifact.Label, err)
+		}
+		header := make([]byte, 12)
+		n, _ := f.Read(header)
+		f.Close()
+		if n < 4 {
+			return fmt.Errorf("screenshot %q is not a valid image file (too short to detect format)", artifact.Label)
+		}
+		if !isImageHeader(header[:n]) {
+			return fmt.Errorf("screenshot %q is not a valid image file; expected PNG, JPEG, GIF, or WebP", artifact.Label)
+		}
+	}
+	return nil
+}
+
+// isImageHeader checks if the byte slice starts with a known image format
+// magic sequence: PNG (\x89PNG), JPEG (\xFF\xD8\xFF), GIF (GIF8), or
+// WebP (RIFF....WEBP).
+func isImageHeader(header []byte) bool {
+	if len(header) >= 4 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G' {
+		return true
+	}
+	if len(header) >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
+		return true
+	}
+	if len(header) >= 4 && header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8' {
+		return true
+	}
+	if len(header) >= 12 && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F' &&
+		header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P' {
+		return true
+	}
+	return false
+}
+
+// vaqueObservationPhrases are filler phrases that indicate the agent did not
+// actually look at the screenshot. When an observation or comparison contains
+// nothing but one of these, it gets rejected.
+var vagueObservationPhrases = []string{
+	"looks good",
+	"looks correct",
+	"looks fine",
+	"looks right",
+	"looks ok",
+	"looks okay",
+	"as expected",
+	"seems fine",
+	"seems correct",
+	"seems good",
+	"seems right",
+	"no issues",
+	"no problems",
+	"everything works",
+	"everything is fine",
+	"all good",
+	"all correct",
+	"nothing wrong",
+	"works as expected",
+	"matches expectations",
+	"lgtm",
+}
+
+// validateObservationQuality checks that an observation or comparison is
+// specific enough to be useful. It rejects:
+//   - text shorter than minLen characters
+//   - text with fewer than MinDistinctWords distinct words
+//   - text that is entirely a known vague filler phrase
+func validateObservationQuality(text, fieldName string, minLen int) error {
+	if len(text) < minLen {
+		return fmt.Errorf(
+			"%s must be specific and descriptive (got %d chars, minimum %d)",
+			fieldName, len(text), minLen,
+		)
+	}
+	words := distinctWords(text)
+	if words < MinDistinctWords {
+		return fmt.Errorf(
+			"%s must use at least %d distinct words to be meaningful (got %d); describe specific UI elements, text, or state you see",
+			fieldName, MinDistinctWords, words,
+		)
+	}
+	lower := strings.ToLower(strings.TrimSpace(text))
+	for _, phrase := range vagueObservationPhrases {
+		if lower == phrase {
+			return fmt.Errorf(
+				"%s is too vague (%q); describe specific elements visible in the screenshot",
+				fieldName, text,
+			)
+		}
+	}
+	return nil
+}
+
+func distinctWords(text string) int {
+	seen := map[string]bool{}
+	for _, word := range strings.Fields(strings.ToLower(text)) {
+		// Strip common punctuation so "dashboard," counts as "dashboard".
+		word = strings.Trim(word, ".,;:!?\"'()-")
+		if word != "" {
+			seen[word] = true
+		}
+	}
+	return len(seen)
 }
 
 func validateScreenshotFreshness(artifacts []Artifact, maxAge time.Duration) error {

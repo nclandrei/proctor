@@ -61,6 +61,8 @@ func run(args []string) error {
 		return runNote(store, cwd, args[1:])
 	case "record":
 		return runRecord(store, cwd, args[1:])
+	case "log":
+		return runLog(store, cwd, args[1:])
 	case "verify":
 		return runVerify(store, cwd, args[1:])
 	case "done":
@@ -148,6 +150,11 @@ func runStatus(store *proctor.Store, cwd string) error {
 			if len(item.Scenario.CurlEndpoints) > 0 {
 				fmt.Printf("  curl contract: %s\n", strings.Join(item.Scenario.CurlEndpoints, "; "))
 			}
+		}
+		if item.LogOK {
+			fmt.Printf("  log: pass\n")
+		} else {
+			fmt.Printf("  log: missing (run proctor log --scenario %s --session <session> --surface <surface> --screenshot <path> --action '...' --observation '...' --comparison '...')\n", item.Scenario.ID)
 		}
 		for _, surface := range item.Scenario.RequiredSurfaces() {
 			ok, _ := item.SurfaceStatus(surface)
@@ -447,6 +454,76 @@ func runVerify(store *proctor.Store, cwd string, args []string) error {
 	return nil
 }
 
+func runLog(store *proctor.Store, cwd string, args []string) error {
+	fs := flag.NewFlagSet("log", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var scenario, session, surface, screenshot, action, observation, comparison string
+	fs.StringVar(&scenario, "scenario", "", "")
+	fs.StringVar(&session, "session", "", "")
+	fs.StringVar(&surface, "surface", "", "")
+	fs.StringVar(&screenshot, "screenshot", "", "")
+	fs.StringVar(&action, "action", "", "")
+	fs.StringVar(&observation, "observation", "", "")
+	fs.StringVar(&comparison, "comparison", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var missing []string
+	if strings.TrimSpace(scenario) == "" {
+		missing = append(missing, "--scenario")
+	}
+	if strings.TrimSpace(session) == "" {
+		missing = append(missing, "--session")
+	}
+	if strings.TrimSpace(surface) == "" {
+		missing = append(missing, "--surface")
+	}
+	if strings.TrimSpace(screenshot) == "" {
+		missing = append(missing, "--screenshot")
+	}
+	if strings.TrimSpace(action) == "" {
+		missing = append(missing, "--action")
+	}
+	if strings.TrimSpace(observation) == "" {
+		missing = append(missing, "--observation")
+	}
+	if strings.TrimSpace(comparison) == "" {
+		missing = append(missing, "--comparison")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required flags: %s", strings.Join(missing, ", "))
+	}
+	run, err := store.LoadRun(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	entry, err := proctor.LogStep(store, run, proctor.LogStepOptions{
+		ScenarioID:     scenario,
+		SessionID:      session,
+		Surface:        surface,
+		ScreenshotPath: screenshot,
+		Action:         action,
+		Observation:    observation,
+		Comparison:     comparison,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Logged step %d for scenario %s session %s\n", entry.Step, entry.ScenarioID, entry.SessionID)
+	fmt.Printf("  action:      %s\n", truncate(entry.Action, 80))
+	fmt.Printf("  observation: %s\n", truncate(entry.Observation, 80))
+	fmt.Printf("  comparison:  %s\n", truncate(entry.Comparison, 80))
+	fmt.Printf("  screenshot:  %s\n", entry.ScreenshotPath)
+	return nil
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
+}
+
 func runDone(store *proctor.Store, cwd string) error {
 	run, err := store.LoadRun(proctor.RepoRoot(cwd))
 	if err != nil {
@@ -462,6 +539,9 @@ func runDone(store *proctor.Store, cwd string) error {
 	}
 	fmt.Println("FAIL")
 	for _, item := range eval.ScenarioEvaluations {
+		if !item.LogOK {
+			fmt.Printf("- %s (log): %s\n", item.Scenario.ID, strings.Join(item.LogIssues, ", "))
+		}
 		for _, surface := range item.Scenario.RequiredSurfaces() {
 			ok, _ := item.SurfaceStatus(surface)
 			if ok {

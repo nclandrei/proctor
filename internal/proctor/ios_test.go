@@ -295,6 +295,7 @@ func TestDonePassesWhenRequiredIOSEvidenceExists(t *testing.T) {
 		}
 	}
 
+	logStepsForAll(t, store, run, repo, "pagena-library-1")
 	verifyAllScenarios(t, store, run, testObservationNotes)
 
 	eval, err := CompleteRun(store, run)

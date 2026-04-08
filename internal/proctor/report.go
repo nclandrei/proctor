@@ -18,9 +18,21 @@ type scenarioReport struct {
 }
 
 type scenarioHTMLReport struct {
-	Eval     ScenarioEvaluation
-	PreNotes []PreNote
-	Evidence []evidenceHTMLReport
+	Eval       ScenarioEvaluation
+	PreNotes   []PreNote
+	LogEntries []logEntryHTMLReport
+	Evidence   []evidenceHTMLReport
+}
+
+type logEntryHTMLReport struct {
+	Step           int
+	Action         string
+	Observation    string
+	Comparison     string
+	InlineSource   template.URL
+	ModalID        string
+	ScreenshotPath string
+	CreatedAt      time.Time
 }
 
 type evidenceHTMLReport struct {
@@ -43,9 +55,9 @@ type artifactHTMLReport struct {
 	ModalID             string
 }
 
-func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence, preNotes []PreNote) (string, string, error) {
+func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence, preNotes []PreNote, logEntries []ScreenshotLogEntry) (string, string, error) {
 	scenarios := groupEvidenceByScenario(eval, evidence)
-	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios, preNotes)
+	htmlScenarios := buildScenarioHTMLReports(runDir, scenarios, preNotes, logEntries)
 	edgeCoverage := edgeCoverageRows(run)
 	curlRequirements := curlRequirementRows(run)
 	runSurface := normalizePlatform(run.Platform)
@@ -53,6 +65,10 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 	preNoteIndex := map[string][]PreNote{}
 	for _, n := range preNotes {
 		preNoteIndex[n.Scenario] = append(preNoteIndex[n.Scenario], n)
+	}
+	logIndex := map[string][]ScreenshotLogEntry{}
+	for _, entry := range logEntries {
+		logIndex[entry.ScenarioID] = append(logIndex[entry.ScenarioID], entry)
 	}
 
 	var md strings.Builder
@@ -137,6 +153,22 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 					md.WriteString(fmt.Sprintf(" · session: `%s`", n.Session))
 				}
 				md.WriteString("\n\n")
+			}
+		}
+
+		// Screenshot log (step-by-step verification walkthrough)
+		scenarioLogs := logIndex[scenario.Eval.Scenario.ID]
+		if len(scenarioLogs) > 0 {
+			md.WriteString("\n**Verification steps:**\n\n")
+			for _, entry := range scenarioLogs {
+				md.WriteString(fmt.Sprintf("**Step %d** (%s)\n\n", entry.Step, formatTimestamp(entry.CreatedAt)))
+				md.WriteString(fmt.Sprintf("- **Action:** %s\n", entry.Action))
+				md.WriteString(fmt.Sprintf("- **Observation:** %s\n", entry.Observation))
+				md.WriteString(fmt.Sprintf("- **Comparison:** %s\n", entry.Comparison))
+				if entry.ScreenshotPath != "" {
+					md.WriteString(fmt.Sprintf("- Screenshot: ![step %d](%s)\n", entry.Step, entry.ScreenshotPath))
+				}
+				md.WriteString("\n")
 			}
 		}
 
@@ -335,6 +367,37 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
         {{ end }}
       </div>
       {{ end }}
+      {{ if $s.LogEntries }}
+      <div class="pre-notes">
+        <div class="notes-label">Verification Steps</div>
+        {{ range $s.LogEntries }}
+        <div class="evidence" style="padding:8px 0;">
+          <h4>Step {{ .Step }}</h4>
+          {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">{{ formatTimestamp .CreatedAt }}</div>{{ end }}
+          <ul class="kv-list">
+            <li><strong>Action:</strong> {{ .Action }}</li>
+            <li><strong>Observation:</strong> {{ .Observation }}</li>
+            <li><strong>Comparison:</strong> {{ .Comparison }}</li>
+          </ul>
+          {{ if .InlineSource }}
+          <div class="artifact-grid">
+            <div class="artifact">
+              <div class="artifact-head"><span class="artifact-name">Step {{ .Step }}</span></div>
+              <a class="thumb" href="#{{ .ModalID }}"><img src="{{ .InlineSource }}" alt="Step {{ .Step }}"></a>
+              <div class="lightbox" id="{{ .ModalID }}">
+                <a class="lightbox-bg" href="#" aria-label="Close"></a>
+                <figure class="lightbox-panel">
+                  <div class="lightbox-head"><figcaption>Step {{ .Step }}</figcaption><a class="lightbox-close" href="#">Close</a></div>
+                  <img src="{{ .InlineSource }}" alt="Step {{ .Step }}">
+                </figure>
+              </div>
+            </div>
+          </div>
+          {{ end }}
+        </div>
+        {{ end }}
+      </div>
+      {{ end }}
       {{ range $s.Evidence }}
       <div class="evidence">
         <h4 class="evidence-label">{{ surfaceTitle .Surface }} Evidence</h4>
@@ -484,16 +547,33 @@ func curlRequirementRows(run Run) []curlRequirementRow {
 	return rows
 }
 
-func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport, preNotes []PreNote) []scenarioHTMLReport {
+func buildScenarioHTMLReports(runDir string, scenarios []scenarioReport, preNotes []PreNote, logEntries []ScreenshotLogEntry) []scenarioHTMLReport {
 	preNoteIndex := map[string][]PreNote{}
 	for _, n := range preNotes {
 		preNoteIndex[n.Scenario] = append(preNoteIndex[n.Scenario], n)
+	}
+	logIndex := map[string][]ScreenshotLogEntry{}
+	for _, entry := range logEntries {
+		logIndex[entry.ScenarioID] = append(logIndex[entry.ScenarioID], entry)
 	}
 	reports := make([]scenarioHTMLReport, 0, len(scenarios))
 	for scenarioIdx, scenario := range scenarios {
 		htmlScenario := scenarioHTMLReport{
 			Eval:     scenario.Eval,
 			PreNotes: preNoteIndex[scenario.Eval.Scenario.ID],
+		}
+		for logIdx, entry := range logIndex[scenario.Eval.Scenario.ID] {
+			art := Artifact{Kind: ArtifactImage, Path: entry.ScreenshotPath}
+			htmlScenario.LogEntries = append(htmlScenario.LogEntries, logEntryHTMLReport{
+				Step:           entry.Step,
+				Action:         entry.Action,
+				Observation:    entry.Observation,
+				Comparison:     entry.Comparison,
+				InlineSource:   inlineArtifactDataURI(runDir, art),
+				ModalID:        fmt.Sprintf("log-%d-%d", scenarioIdx, logIdx),
+				ScreenshotPath: entry.ScreenshotPath,
+				CreatedAt:      entry.CreatedAt,
+			})
 		}
 		for evidenceIdx, item := range scenario.Evidence {
 			htmlEvidence := evidenceHTMLReport{

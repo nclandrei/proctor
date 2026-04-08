@@ -32,7 +32,10 @@ const (
 	EvidenceStatusPending  = "pending-verification"
 	EvidenceStatusComplete = "complete"
 
-	MinObservationNotesLength = 20
+	MinObservationNotesLength = 40
+	MinPreNoteLength          = 20
+	MinActionLength           = 20
+	MinDistinctWords          = 4
 	ArtifactImage             = "image"
 	ArtifactJSONReport        = "json-report"
 	ArtifactTranscript        = "transcript"
@@ -384,11 +387,13 @@ type ScenarioEvaluation struct {
 	CurlOK        bool
 	CLIOK         bool
 	DesktopOK     bool
+	LogOK         bool
 	BrowserIssues []string
 	IOSIssues     []string
 	CurlIssues    []string
 	CLIIssues     []string
 	DesktopIssues []string
+	LogIssues     []string
 }
 
 func (s Scenario) RequiredSurfaces() []string {
@@ -458,6 +463,25 @@ func (s ScenarioEvaluation) SurfaceIssues(surface string) []string {
 	default:
 		return nil
 	}
+}
+
+// ScreenshotLogEntry is one step in the agent's verification walkthrough.
+// The agent describes what it did, takes a screenshot, looks at the
+// screenshot with its own vision, writes what it sees, and explains how
+// what it sees compares to the scenario requirements.
+type ScreenshotLogEntry struct {
+	ID             string    `json:"id"`
+	RunID          string    `json:"run_id"`
+	ScenarioID     string    `json:"scenario_id"`
+	SessionID      string    `json:"session_id"`
+	Surface        string    `json:"surface"`
+	Step           int       `json:"step"`
+	Action         string    `json:"action"`
+	ScreenshotPath string    `json:"screenshot_path"`
+	SHA256         string    `json:"sha256"`
+	Observation    string    `json:"observation"`
+	Comparison     string    `json:"comparison"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func normalizePlatform(platform string) string {
