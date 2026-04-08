@@ -61,6 +61,10 @@ func run(args []string) error {
 		return runNote(store, cwd, args[1:])
 	case "record":
 		return runRecord(store, cwd, args[1:])
+	case "log":
+		return runLog(store, cwd, args[1:])
+	case "analyze":
+		return runAnalyze(store, cwd, args[1:])
 	case "verify":
 		return runVerify(store, cwd, args[1:])
 	case "done":
@@ -444,6 +448,110 @@ func runVerify(store *proctor.Store, cwd string, args []string) error {
 		return err
 	}
 	fmt.Printf("Verified scenario %s\n", scenario)
+	return nil
+}
+
+func runLog(store *proctor.Store, cwd string, args []string) error {
+	fs := flag.NewFlagSet("log", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var scenario, session, surface, screenshot, action string
+	fs.StringVar(&scenario, "scenario", "", "")
+	fs.StringVar(&session, "session", "", "")
+	fs.StringVar(&surface, "surface", "", "")
+	fs.StringVar(&screenshot, "screenshot", "", "")
+	fs.StringVar(&action, "action", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var missing []string
+	if strings.TrimSpace(scenario) == "" {
+		missing = append(missing, "--scenario")
+	}
+	if strings.TrimSpace(session) == "" {
+		missing = append(missing, "--session")
+	}
+	if strings.TrimSpace(surface) == "" {
+		missing = append(missing, "--surface")
+	}
+	if strings.TrimSpace(screenshot) == "" {
+		missing = append(missing, "--screenshot")
+	}
+	if strings.TrimSpace(action) == "" {
+		missing = append(missing, "--action")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required flags: %s", strings.Join(missing, ", "))
+	}
+	run, err := store.LoadRun(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	entry, err := proctor.LogStep(store, run, proctor.LogStepOptions{
+		ScenarioID:     scenario,
+		SessionID:      session,
+		Surface:        surface,
+		ScreenshotPath: screenshot,
+		Action:         action,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Logged step %d for scenario %s session %s\n", entry.Step, entry.ScenarioID, entry.SessionID)
+	fmt.Printf("Screenshot: %s\n", entry.ScreenshotPath)
+	return nil
+}
+
+func runAnalyze(store *proctor.Store, cwd string, args []string) error {
+	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var scenario, session string
+	fs.StringVar(&scenario, "scenario", "", "")
+	fs.StringVar(&session, "session", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(scenario) == "" {
+		return fmt.Errorf("missing required flag: --scenario")
+	}
+	run, err := store.LoadRun(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	client, err := proctor.NewVisionClient()
+	if err != nil {
+		return err
+	}
+	results, err := proctor.AnalyzeScreenshots(store, run, client, proctor.AnalyzeOptions{
+		ScenarioID: scenario,
+		SessionID:  session,
+	})
+	if err != nil {
+		return err
+	}
+	for i, analysis := range results {
+		fmt.Printf("\n--- Screenshot %d ---\n", i+1)
+		fmt.Printf("Description: %s\n", analysis.Description)
+		fmt.Printf("Comparison:  %s\n", analysis.Comparison)
+		if len(analysis.Findings) > 0 {
+			fmt.Println("Findings:")
+			for _, f := range analysis.Findings {
+				fmt.Printf("  + %s\n", f)
+			}
+		}
+		if len(analysis.Concerns) > 0 {
+			fmt.Println("Concerns:")
+			for _, c := range analysis.Concerns {
+				fmt.Printf("  ! %s\n", c)
+			}
+		}
+		if analysis.MatchesIntent {
+			fmt.Println("Verdict: MATCHES scenario intent")
+		} else {
+			fmt.Println("Verdict: DOES NOT MATCH scenario intent")
+		}
+	}
+	fmt.Printf("\nAnalyzed %d screenshot(s) for scenario %s\n", len(results), scenario)
+	fmt.Printf("Analysis stored in: %s\n", store.AnalysisPath(run))
 	return nil
 }
 

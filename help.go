@@ -37,6 +37,14 @@ func commandHelp(args []string) (string, bool, error) {
 		if wantsHelp(args[1:]) {
 			return noteHelpText(), true, nil
 		}
+	case "log":
+		if wantsHelp(args[1:]) {
+			return logStepHelpText(), true, nil
+		}
+	case "analyze":
+		if wantsHelp(args[1:]) {
+			return analyzeHelpText(), true, nil
+		}
 	case "verify":
 		if wantsHelp(args[1:]) {
 			return verifyHelpText(), true, nil
@@ -95,6 +103,10 @@ func topicHelp(args []string) (string, error) {
 		return statusHelpText(), nil
 	case "note":
 		return noteHelpText(), nil
+	case "log":
+		return logStepHelpText(), nil
+	case "analyze":
+		return analyzeHelpText(), nil
 	case "verify":
 		return verifyHelpText(), nil
 	case "done":
@@ -139,7 +151,9 @@ func rootHelpText() string {
 Quick reference (the verification loop, one pass per scenario):
   proctor start   -> define happy path, failure path, and edge-case scenarios
   proctor note    -> commit to intent BEFORE screenshotting ("what I'm about to test")
+  proctor log     -> record each step with a screenshot as you work (optional)
   proctor record  -> attach the screenshot + report + assertions
+  proctor analyze -> AI vision analysis: look at screenshots, describe and compare (optional)
   proctor verify  -> re-read the screenshot, write what you actually saw
   proctor done    -> passes only if every scenario has note + record + verify
 
@@ -147,11 +161,13 @@ Commands:
   start       create a verification contract with happy/failure/edge scenarios
   status      show contract state: missing notes, pending verifications, gaps
   note        file pre-test intent for a (scenario, session) BEFORE recording
+  log         record a verification step with a screenshot and action description
   record      attach evidence (screenshots, reports, transcripts) to a scenario
+  analyze     run AI vision analysis on screenshots for a scenario
   verify      write observation notes after re-reading the recorded screenshot
   done        enforce contract; fails if any scenario is incomplete
   report      generate HTML/markdown summary for the run
-  help TOPIC  detailed help (start | note | record | verify | done | status | report)
+  help TOPIC  detailed help (start | note | log | record | analyze | verify | done | status | report)
 
 Gates that force the agent to slow down and look:
   record refuses without a pre-note for (scenario, session)
@@ -176,11 +192,15 @@ Mandatory next step for the agent after reading this help:
   2. run proctor start with the right platform for that feature
   3. file a pre-test note for each scenario with proctor note --scenario X
      --session Y --notes "what I am about to test" BEFORE recording
-  4. perform the actual manual checks
+  4. perform the actual manual checks, optionally logging each step with
+     proctor log --scenario X --session Y --surface S --screenshot /path
+     --action "what I just did"
   5. attach evidence with the relevant proctor record command(s)
-  6. re-read each recorded screenshot and call proctor verify with an
+  6. optionally run proctor analyze --scenario X to have AI vision describe
+     what each screenshot shows and compare it to the scenario requirements
+  7. re-read each recorded screenshot and call proctor verify with an
      observation describing what is actually visible in the image
-  7. finish with proctor done
+  8. finish with proctor done
 
 Proctor does three things:
   1. creates a verification contract for the feature being tested
@@ -466,11 +486,13 @@ What counts as CLI evidence:
 Use subcommand help for exact flags:
   proctor start --help
   proctor note --help
+  proctor log --help
   proctor record browser --help
   proctor record cli --help
   proctor record ios --help
   proctor record desktop --help
   proctor record curl --help
+  proctor analyze --help
   proctor verify --help
   proctor done --help
 
@@ -1107,6 +1129,129 @@ Example:
     --scenario happy-path \
     --session auth-browser-1 \
     --notes "about to log in with demo@example.com and expect redirect to /dashboard with a Sign out link"
+`
+}
+
+func logStepHelpText() string {
+	return `proctor log - record a verification step with a screenshot
+
+Usage:
+  proctor log \
+    --scenario ID \
+    --session SESSION \
+    --surface SURFACE \
+    --screenshot /abs/path/step.png \
+    --action "what I just did"
+
+Required:
+  --scenario ID        Scenario id from contract.md or proctor status
+  --session SESSION    Stable session id you will reuse for proctor record
+  --surface SURFACE    One of: browser, ios, cli, desktop
+  --screenshot PATH    Absolute path to the screenshot from this step
+  --action TEXT        Description of what the agent just did (minimum 20 characters)
+
+proctor log builds a chronological visual record of the verification
+process. Each call captures one step: the agent describes what it did,
+and attaches a screenshot showing the result. Steps are stored in
+screenshot-log.jsonl and can later be analyzed with proctor analyze.
+
+Unlike proctor record, proctor log does not evaluate assertions or
+create evidence entries. It is a lightweight step-by-step diary meant
+to be called frequently as the agent works through a scenario.
+
+The log is optional. Agents that log their steps produce richer audit
+trails and get better results from proctor analyze, but the log is not
+required for proctor done to pass.
+
+Example workflow:
+  proctor log \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --surface browser \
+    --screenshot /tmp/step1-login-page.png \
+    --action "Navigated to http://127.0.0.1:3000/login, login form is visible"
+
+  proctor log \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --surface browser \
+    --screenshot /tmp/step2-credentials.png \
+    --action "Entered demo@example.com and password, clicked Submit button"
+
+  proctor log \
+    --scenario happy-path \
+    --session auth-browser-1 \
+    --surface browser \
+    --screenshot /tmp/step3-dashboard.png \
+    --action "Landed on /dashboard after successful login, greeting visible"
+
+  # Now record the final evidence as usual:
+  proctor record browser --scenario happy-path --session auth-browser-1 ...
+
+Steps are numbered automatically per (scenario, session) pair.
+`
+}
+
+func analyzeHelpText() string {
+	return `proctor analyze - run AI vision analysis on screenshots
+
+Usage:
+  proctor analyze \
+    --scenario ID \
+    [--session SESSION]
+
+Required:
+  --scenario ID        Scenario id to analyze screenshots for
+
+Optional:
+  --session SESSION    Filter to screenshots from one session only
+
+Environment:
+  ANTHROPIC_API_KEY    Required. Your Anthropic API key for Claude vision.
+  ANTHROPIC_MODEL      Optional. Model to use (default: claude-sonnet-4-20250514).
+  ANTHROPIC_BASE_URL   Optional. API base URL (default: https://api.anthropic.com).
+
+proctor analyze sends every screenshot for the given scenario to the
+Claude vision API and asks it to:
+
+  1. Describe what is visible on screen
+  2. Compare what it sees against the scenario requirements
+  3. List specific findings (matches and mismatches)
+  4. List any concerns (visual bugs, missing elements, errors)
+  5. Judge whether the screenshot matches the scenario's intent
+
+Screenshots are collected from two sources:
+  - Step-by-step log entries (from proctor log)
+  - Recorded evidence screenshots (from proctor record)
+
+The analysis is stored in analysis.jsonl alongside the other ledger
+files. Each entry records the model's description, comparison, findings,
+concerns, and a matches_intent boolean.
+
+proctor analyze is optional. It does not gate proctor done. But it
+closes the gap between "the agent claims it looked at the screenshot"
+and "an AI model actually examined the screenshot and compared it to
+the scenario requirements."
+
+Example:
+  export ANTHROPIC_API_KEY=sk-ant-...
+  proctor analyze --scenario happy-path
+
+  # Output:
+  # --- Screenshot 1 ---
+  # Description: Login page with email and password fields...
+  # Comparison:  The screenshot shows the expected login form...
+  # Findings:
+  #   + Email field is present and empty
+  #   + Password field is present
+  #   + Submit button is visible and labeled "Sign In"
+  # Concerns:
+  #   (none)
+  # Verdict: MATCHES scenario intent
+
+The analysis results are also included in proctor report output when
+available, providing a complete audit trail of what the AI actually
+saw in each screenshot.
 `
 }
 
