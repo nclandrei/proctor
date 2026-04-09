@@ -255,6 +255,8 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 		"runTargetLabel":       runTargetLabel,
 		"runTargetValue":       runTargetValue,
 		"formatTimestamp":      formatTimestamp,
+		"truncateActual":       truncateActual,
+		"allAssertionsPass":    allAssertionsPass,
 	}).Parse(`<!doctype html>
 <html lang="en">
 <head>
@@ -455,19 +457,24 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
       {{ end }}
       {{ end }}
 
-      {{/* 5. Assertions — compact */}}
+      {{/* 5. Assertions — collapsed when all pass */}}
       {{ range $s.Evidence }}
       {{ if .Assertions }}
+      {{ if allAssertionsPass .Assertions }}
+      <details class="evidence-details">
+        <summary><span class="badge ok">{{ len .Assertions }} assertions passed</span></summary>
+      {{ end }}
       <ul class="assertion-list">
         {{ range .Assertions }}
         <li>
           <span class="assertion-tag {{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">{{ if eq .Result "pass" }}PASS{{ else }}FAIL{{ end }}</span>
           <code>{{ .Description }}</code>
-          {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ .Actual }}</code></span>{{ end }}
+          {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ truncateActual .Actual }}</code></span>{{ end }}
           {{ if .Message }}<span class="detail">{{ .Message }}</span>{{ end }}
         </li>
         {{ end }}
       </ul>
+      {{ if allAssertionsPass .Assertions }}</details>{{ end }}
       {{ end }}
       {{ end }}
 
@@ -906,6 +913,24 @@ func formatTimestamp(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+// truncateActual shortens long assertion actual values for display.
+func truncateActual(s string) string {
+	if len(s) <= 120 {
+		return s
+	}
+	return s[:120] + "…"
+}
+
+// allAssertionsPass returns true if every assertion in the slice passed.
+func allAssertionsPass(assertions []Assertion) bool {
+	for _, a := range assertions {
+		if a.Result != AssertionPass {
+			return false
+		}
+	}
+	return true
 }
 
 func scenarioSurfaces(scenario Scenario) []string {
