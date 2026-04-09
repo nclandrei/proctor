@@ -469,12 +469,45 @@ func compareAssertion(actual interface{}, operator, expected string) (bool, stri
 		return value == want, strconv.FormatBool(value), strconv.FormatBool(want), nil
 	case string:
 		if operator == "contains" {
-			return strings.Contains(value, expected), value, expected, nil
+			return strings.Contains(value, expected), containsContext(value, expected), expected, nil
+		}
+		if len(value) > 200 {
+			return value == expected, value[:200] + "…", expected, nil
 		}
 		return value == expected, value, expected, nil
 	default:
 		return false, "", "", fmt.Errorf("unsupported assertion value type")
 	}
+}
+
+// containsContext returns a short excerpt around the first match of needle
+// in haystack, or the truncated haystack if needle is absent.
+func containsContext(haystack, needle string) string {
+	idx := strings.Index(haystack, needle)
+	if idx < 0 {
+		if len(haystack) > 200 {
+			return haystack[:200] + "…"
+		}
+		return haystack
+	}
+	const radius = 40
+	start := idx - radius
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(needle) + radius
+	if end > len(haystack) {
+		end = len(haystack)
+	}
+	prefix := ""
+	suffix := ""
+	if start > 0 {
+		prefix = "…"
+	}
+	if end < len(haystack) {
+		suffix = "…"
+	}
+	return prefix + haystack[start:end] + suffix
 }
 
 func hasScreenshotLabel(artifacts []Artifact, label string) bool {

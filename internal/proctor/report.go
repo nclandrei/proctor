@@ -419,6 +419,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
         {{ end }}
       </div>
       {{ end }}
+      {{ if not $s.LogEntries }}
       {{ range $s.Evidence }}
       {{ if .Artifacts }}
       <div class="screenshot-gallery">
@@ -439,6 +440,7 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
         {{ end }}
         {{ end }}
       </div>
+      {{ end }}
       {{ end }}
       {{ end }}
 
