@@ -1833,7 +1833,7 @@ func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
 // it should file additional pre-notes with FilePreNote directly.
 func filePreNotesForAll(t *testing.T, store *Store, run Run, session, notes string) {
 	t.Helper()
-	if len(notes) < MinVerdictLength {
+	if len(notes) < MinVerificationLength {
 		t.Fatalf("filePreNotesForAll notes too short (%d chars); test fixtures must supply real pre-notes", len(notes))
 	}
 	for _, scenario := range run.Scenarios {
@@ -1864,7 +1864,7 @@ const testPreNoteText = "about to verify this scenario end to end with the descr
 // boilerplate out of the individual test bodies.
 func verifyAllScenarios(t *testing.T, store *Store, run Run, notes string) {
 	t.Helper()
-	if len(notes) < MinVerdictLength {
+	if len(notes) < MinVerificationLength {
 		t.Fatalf("verifyAllScenarios notes too short (%d chars); test fixtures must supply real observations", len(notes))
 	}
 	records, err := store.loadEvidenceRaw(run)
@@ -1890,7 +1890,7 @@ func verifyAllScenarios(t *testing.T, store *Store, run Run, notes string) {
 	}
 }
 
-// testObservationNotes is a fixed verdict that safely clears the 40-character
+// testObservationNotes is a fixed verification that safely clears the 40-character
 // minimum and judgment-word requirement for proctor verify. Tests use this
 // when they only need the verification gate to pass and the exact text is
 // not under test.

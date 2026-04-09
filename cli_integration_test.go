@@ -83,13 +83,13 @@ func TestCLIFlowViaGoRun(t *testing.T) {
 		"verify",
 		"--scenario", "happy-path",
 		"--session", "integration-cli-1",
-		"--verdict", "This satisfies the contract because the terminal shows the demo help usage block and the onboarding prompt heading",
+		"--verification", "This satisfies the contract because the terminal shows the demo help usage block and the onboarding prompt heading",
 	)
 	runProctorCLI(t, proctorBinary, repoRoot, proctorHome,
 		"verify",
 		"--scenario", "failure-path",
 		"--session", "integration-cli-1",
-		"--verdict", "This satisfies the contract because the terminal shows error: prompt not found with no stack trace and a non-zero exit code",
+		"--verification", "This satisfies the contract because the terminal shows error: prompt not found with no stack trace and a non-zero exit code",
 	)
 
 	for _, scenario := range []string{"happy-path", "failure-path"} {

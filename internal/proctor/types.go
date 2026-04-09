@@ -32,17 +32,17 @@ const (
 	EvidenceStatusPending  = "pending-verification"
 	EvidenceStatusComplete = "complete"
 
-	MinVerdictLength   = 40
-	MinPreNoteLength   = 20
-	MinActionLength    = 20
-	MinDistinctWords   = 4
-	ArtifactImage      = "image"
-	ArtifactJSONReport = "json-report"
-	ArtifactTranscript = "transcript"
-	ArtifactHTML       = "html"
-	ArtifactMarkdown   = "markdown"
-	EdgeCategoryNA     = "na"
-	EdgeCategoryScenar = "scenario"
+	MinVerificationLength = 40
+	MinPreNoteLength      = 20
+	MinActionLength       = 20
+	MinDistinctWords      = 4
+	ArtifactImage         = "image"
+	ArtifactJSONReport    = "json-report"
+	ArtifactTranscript    = "transcript"
+	ArtifactHTML          = "html"
+	ArtifactMarkdown      = "markdown"
+	EdgeCategoryNA        = "na"
+	EdgeCategoryScenar    = "scenario"
 )
 
 var WebEdgeCaseCategories = []string{
@@ -179,7 +179,7 @@ type Evidence struct {
 	CLI        *CLIData     `json:"cli,omitempty"`
 	Desktop    *DesktopData `json:"desktop,omitempty"`
 	Status     string       `json:"status,omitempty"`
-	// Notes stores the verification verdict. The JSON key stays "notes" for
+	// Notes stores the verification text. The JSON key stays "notes" for
 	// backwards compatibility with existing evidence.jsonl files.
 	Notes      string     `json:"notes,omitempty"`
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`

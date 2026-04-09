@@ -186,18 +186,18 @@ func runProctorCLIExpectFail(t *testing.T, binary, repoRoot, proctorHome string,
 }
 
 // verifyAllScenariosCLI runs `proctor verify` for every scenario id in
-// scenarios using the shared session id. Verdicts are scenario-specific but
-// always long enough to pass the MinVerdictLength gate and include a
+// scenarios using the shared session id. Verifications are scenario-specific but
+// always long enough to pass the MinVerificationLength gate and include a
 // judgment word.
 func verifyAllScenariosCLI(t *testing.T, binary, repoRoot, proctorHome, sessionID string, scenarios []string) {
 	t.Helper()
 	for _, scenarioID := range scenarios {
-		verdict := "This satisfies the " + scenarioID + " contract because the terminal shows the expected output clearly with no unexpected stack traces"
+		verification := "This satisfies the " + scenarioID + " contract because the terminal shows the expected output clearly with no unexpected stack traces"
 		runProctorCLI(t, binary, repoRoot, proctorHome,
 			"verify",
 			"--scenario", scenarioID,
 			"--session", sessionID,
-			"--verdict", verdict,
+			"--verification", verification,
 		)
 	}
 }
@@ -241,32 +241,32 @@ func TestVerifyFlow_DoneBlocksWithoutVerify(t *testing.T) {
 	}
 }
 
-func TestVerifyFlow_EmptyVerdictRejected(t *testing.T) {
+func TestVerifyFlow_EmptyVerificationRejected(t *testing.T) {
 	fx := newVerifyFixture(t)
 	fx.startCLIRun(t)
-	fx.recordCLIScenario(t, "happy-path", "empty-verdict-session")
+	fx.recordCLIScenario(t, "happy-path", "empty-verification-session")
 
 	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
 		"verify",
 		"--scenario", "happy-path",
-		"--session", "empty-verdict-session",
-		"--verdict", "",
+		"--session", "empty-verification-session",
+		"--verification", "",
 	)
-	if !strings.Contains(output, "--verdict") {
-		t.Fatalf("expected empty --verdict rejection to mention --verdict flag, got:\n%s", output)
+	if !strings.Contains(output, "--verification") {
+		t.Fatalf("expected empty --verification rejection to mention --verification flag, got:\n%s", output)
 	}
 }
 
-func TestVerifyFlow_ShortVerdictRejected(t *testing.T) {
+func TestVerifyFlow_ShortVerificationRejected(t *testing.T) {
 	fx := newVerifyFixture(t)
 	fx.startCLIRun(t)
-	fx.recordCLIScenario(t, "happy-path", "short-verdict-session")
+	fx.recordCLIScenario(t, "happy-path", "short-verification-session")
 
 	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
 		"verify",
 		"--scenario", "happy-path",
-		"--session", "short-verdict-session",
-		"--verdict", "ok",
+		"--session", "short-verification-session",
+		"--verification", "ok",
 	)
 	if !strings.Contains(output, "must be specific") {
 		t.Fatalf("expected quality rejection to mention specificity rule, got:\n%s", output)
@@ -285,7 +285,7 @@ func TestVerifyFlow_UnknownScenarioRejected(t *testing.T) {
 		"verify",
 		"--scenario", "doesnt-exist",
 		"--session", "unknown-scenario-session",
-		"--verdict", "This satisfies the contract because the text is long enough to clear the minimum verdict length gate",
+		"--verification", "This satisfies the contract because the text is long enough to clear the minimum verification length gate",
 	)
 	if !strings.Contains(output, "no evidence for scenario") {
 		t.Fatalf("expected unknown-scenario rejection to mention missing evidence, got:\n%s", output)
@@ -306,7 +306,7 @@ func TestVerifyFlow_DoubleVerifyRejected(t *testing.T) {
 		"verify",
 		"--scenario", "happy-path",
 		"--session", "double-verify-session",
-		"--verdict", "This satisfies the contract because the second attempt at verifying the same evidence should not be allowed",
+		"--verification", "This satisfies the contract because the second attempt at verifying the same evidence should not be allowed",
 	)
 	if !strings.Contains(output, "already verified") {
 		t.Fatalf("expected double-verify rejection to mention already-verified, got:\n%s", output)
@@ -415,7 +415,7 @@ func TestVerifyFlow_EvidenceJSONLContainsNotesAndStatus(t *testing.T) {
 		"verify",
 		"--scenario", "happy-path",
 		"--session", "jsonl-session",
-		"--verdict", notes,
+		"--verification", notes,
 	)
 
 	runsRoot := filepath.Join(fx.proctorHome, "runs")

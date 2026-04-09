@@ -423,10 +423,10 @@ func runRecordDesktop(store *proctor.Store, run proctor.Run, args []string) erro
 func runVerify(store *proctor.Store, cwd string, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(ioDiscard{})
-	var scenario, session, verdict string
+	var scenario, session, verification string
 	fs.StringVar(&scenario, "scenario", "", "")
 	fs.StringVar(&session, "session", "", "")
-	fs.StringVar(&verdict, "verdict", "", "")
+	fs.StringVar(&verification, "verification", "", "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -437,8 +437,8 @@ func runVerify(store *proctor.Store, cwd string, args []string) error {
 	if strings.TrimSpace(session) == "" {
 		missing = append(missing, "--session")
 	}
-	if strings.TrimSpace(verdict) == "" {
-		missing = append(missing, "--verdict")
+	if strings.TrimSpace(verification) == "" {
+		missing = append(missing, "--verification")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required flags: %s", strings.Join(missing, ", "))
@@ -447,7 +447,7 @@ func runVerify(store *proctor.Store, cwd string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := proctor.VerifyEvidence(store, run, scenario, session, verdict); err != nil {
+	if err := proctor.VerifyEvidence(store, run, scenario, session, verification); err != nil {
 		return err
 	}
 	fmt.Printf("Verified scenario %s\n", scenario)

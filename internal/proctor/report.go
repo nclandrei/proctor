@@ -153,10 +153,10 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 			}
 		}
 
-		// Verdict (renamed from observation notes)
+		// Verification (renamed from observation notes)
 		for _, item := range scenario.Evidence {
 			if item.Notes != "" {
-				md.WriteString(fmt.Sprintf("\n> **Verdict:** %s\n\n", item.Notes))
+				md.WriteString(fmt.Sprintf("\n> **Verification:** %s\n\n", item.Notes))
 			}
 		}
 
@@ -319,10 +319,10 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
     .screenshot-gallery .screenshot-item { margin: 8px 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
     .screenshot-gallery .screenshot-item .artifact-head { padding: 4px 8px; font-size: 0.8em; background: #f6f8fa; }
     .screenshot-gallery .screenshot-item a.thumb img { width: 100%; min-width: 400px; max-height: 400px; object-fit: contain; display: block; border-top: 1px solid var(--border); }
-    .verdict-box { margin: 12px 0; padding: 8px 12px; background: #dafbe1; border-left: 3px solid var(--pass); border-radius: 2px; }
-    .verdict-box .verdict-contract { font-size: 0.78em; color: var(--muted); margin-bottom: 4px; }
-    .verdict-box .verdict-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--pass); font-weight: 600; margin-bottom: 2px; }
-    .verdict-box .verdict-text { font-size: 0.85em; white-space: pre-wrap; }
+    .verification-box { margin: 12px 0; padding: 8px 12px; background: #dafbe1; border-left: 3px solid var(--pass); border-radius: 2px; }
+    .verification-box .verification-contract { font-size: 0.78em; color: var(--muted); margin-bottom: 4px; }
+    .verification-box .verification-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--pass); font-weight: 600; margin-bottom: 2px; }
+    .verification-box .verification-text { font-size: 0.85em; white-space: pre-wrap; }
     .evidence-details { margin: 8px 0; }
     .evidence-details > summary { font-size: 0.82em; color: var(--muted); cursor: pointer; padding: 4px 0; }
     .evidence-details .evidence-meta { padding: 6px 0; }
@@ -446,13 +446,13 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
       {{ end }}
       {{ end }}
 
-      {{/* 4. Verdict — renamed from observation notes, with contract claim */}}
+      {{/* 4. Verification — renamed from observation notes, with contract claim */}}
       {{ range $s.Evidence }}
       {{ if .Notes }}
-      <div class="verdict-box">
-        <div class="verdict-contract">Contract: {{ $eval.Scenario.Label }}</div>
-        <div class="verdict-label">Verdict</div>
-        <div class="verdict-text">{{ .Notes }}</div>
+      <div class="verification-box">
+        <div class="verification-contract">Contract: {{ $eval.Scenario.Label }}</div>
+        <div class="verification-label">Verification</div>
+        <div class="verification-text">{{ .Notes }}</div>
       </div>
       {{ end }}
       {{ end }}
