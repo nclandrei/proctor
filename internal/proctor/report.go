@@ -457,32 +457,36 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
       {{ end }}
       {{ end }}
 
-      {{/* 5. Assertions — collapsed when all pass */}}
+      {{/* 5. Failed assertions shown inline; all-pass and technical details collapsed together */}}
       {{ range $s.Evidence }}
-      {{ if .Assertions }}
-      {{ if allAssertionsPass .Assertions }}
-      <details class="evidence-details">
-        <summary><span class="badge ok">{{ len .Assertions }} assertions passed</span></summary>
-      {{ end }}
+      {{ if not (allAssertionsPass .Assertions) }}
       <ul class="assertion-list">
-        {{ range .Assertions }}
+        {{ range .Assertions }}{{ if ne .Result "pass" }}
         <li>
-          <span class="assertion-tag {{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">{{ if eq .Result "pass" }}PASS{{ else }}FAIL{{ end }}</span>
+          <span class="assertion-tag fail">FAIL</span>
           <code>{{ .Description }}</code>
-          {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ truncateActual .Actual }}</code></span>{{ end }}
+          {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ .Actual }}</code></span>{{ end }}
           {{ if .Message }}<span class="detail">{{ .Message }}</span>{{ end }}
         </li>
-        {{ end }}
+        {{ end }}{{ end }}
       </ul>
-      {{ if allAssertionsPass .Assertions }}</details>{{ end }}
       {{ end }}
       {{ end }}
 
-      {{/* 6. Technical metadata — collapsed */}}
-      {{ range $s.Evidence }}
       <details class="evidence-details">
-        <summary>Evidence details — {{ surfaceTitle .Surface }}{{ if not .CreatedAt.IsZero }} · <span class="evidence-timestamp">Captured: {{ formatTimestamp .CreatedAt }}</span>{{ end }}</summary>
+        <summary>Technical details{{ range $s.Evidence }}{{ if .Assertions }} · <span class="badge {{ if allAssertionsPass .Assertions }}ok{{ else }}bad{{ end }}">{{ len .Assertions }} assertions</span>{{ end }}{{ if not .CreatedAt.IsZero }} · <span class="evidence-timestamp">Captured: {{ formatTimestamp .CreatedAt }}</span>{{ end }}{{ end }}</summary>
+        {{ range $s.Evidence }}
         <div class="evidence-meta">
+          {{ if .Assertions }}
+          <ul class="assertion-list">
+            {{ range .Assertions }}
+            <li>
+              <span class="assertion-tag {{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">{{ if eq .Result "pass" }}PASS{{ else }}FAIL{{ end }}</span>
+              <code>{{ .Description }}</code>
+            </li>
+            {{ end }}
+          </ul>
+          {{ end }}
           {{ if .Summary }}<ul class="kv-list">{{ range .Summary }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
           {{ if .Artifacts }}
           {{ range .Artifacts }}
@@ -503,28 +507,21 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
           {{ end }}
           {{ end }}
         </div>
-      </details>
-      {{ end }}
-
-      {{/* Log entry details collapsed */}}
-      {{ if $s.LogEntries }}
-      <details class="evidence-details">
-        <summary>Verification step details</summary>
-        <div class="evidence-meta">
-          {{ range $s.LogEntries }}
-          <div style="padding:4px 0;border-bottom:1px solid var(--border);">
-            <h4>Step {{ .Step }}</h4>
-            {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">{{ formatTimestamp .CreatedAt }}</div>{{ end }}
-            <ul class="kv-list">
-              <li><strong>Action:</strong> {{ .Action }}</li>
-              <li><strong>Observation:</strong> {{ .Observation }}</li>
-              <li><strong>Comparison:</strong> {{ .Comparison }}</li>
-            </ul>
-          </div>
-          {{ end }}
+        {{ end }}
+        {{ if $s.LogEntries }}
+        {{ range $s.LogEntries }}
+        <div style="padding:4px 0;border-bottom:1px solid var(--border);">
+          <h4>Step {{ .Step }}</h4>
+          {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">{{ formatTimestamp .CreatedAt }}</div>{{ end }}
+          <ul class="kv-list">
+            <li><strong>Action:</strong> {{ .Action }}</li>
+            <li><strong>Observation:</strong> {{ .Observation }}</li>
+            <li><strong>Comparison:</strong> {{ .Comparison }}</li>
+          </ul>
         </div>
+        {{ end }}
+        {{ end }}
       </details>
-      {{ end }}
 
       <div class="scenario-id muted" style="margin-top:8px;"><code>{{ $eval.Scenario.ID }}</code>{{ if and $eval.Scenario.CurlRequired $eval.Scenario.CurlEndpoints }} · curl: {{ range $ci, $ep := $eval.Scenario.CurlEndpoints }}{{ if $ci }}, {{ end }}<code>{{ $ep }}</code>{{ end }}{{ end }}</div>
     </div>
