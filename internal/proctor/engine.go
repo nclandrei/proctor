@@ -24,7 +24,7 @@ func printVerificationInstructions(scenarioID, sessionID string) {
 	fmt.Fprintf(
 		Stdout,
 		"Evidence recorded, scenario %s requires verification. "+
-			"Run: proctor verify --scenario %s --session %s --notes 'describe what you see in the screenshot'\n",
+			"Run: proctor verify --scenario %s --session %s --verdict 'state whether the screenshot satisfies the contract and why'\n",
 		scenarioID, scenarioID, sessionID,
 	)
 }
@@ -1085,13 +1085,13 @@ func LogStep(store *Store, run Run, opts LogStepOptions) (ScreenshotLogEntry, er
 	if observation == "" {
 		return ScreenshotLogEntry{}, fmt.Errorf("log step: --observation is required (describe what you see in the screenshot)")
 	}
-	if err := validateObservationQuality(observation, "observation", MinObservationNotesLength); err != nil {
+	if err := validateObservationQuality(observation, "observation", MinVerdictLength); err != nil {
 		return ScreenshotLogEntry{}, err
 	}
 	if comparison == "" {
 		return ScreenshotLogEntry{}, fmt.Errorf("log step: --comparison is required (explain how what you see compares to the scenario)")
 	}
-	if err := validateObservationQuality(comparison, "comparison", MinObservationNotesLength); err != nil {
+	if err := validateObservationQuality(comparison, "comparison", MinVerdictLength); err != nil {
 		return ScreenshotLogEntry{}, err
 	}
 	if _, ok := findScenario(run, scenarioID); !ok {
@@ -1159,9 +1159,12 @@ func VerifyEvidence(store *Store, run Run, scenarioID, sessionID, notes string) 
 	}
 	trimmedNotes := strings.TrimSpace(notes)
 	if trimmedNotes == "" {
-		return fmt.Errorf("notes required: describe what you see in the screenshot")
+		return fmt.Errorf("verdict required: state whether the screenshot satisfies the scenario contract and why")
 	}
-	if err := validateObservationQuality(trimmedNotes, "observation notes", MinObservationNotesLength); err != nil {
+	if err := validateObservationQuality(trimmedNotes, "verdict", MinVerdictLength); err != nil {
+		return err
+	}
+	if err := validateVerdictJudgment(trimmedNotes); err != nil {
 		return err
 	}
 
@@ -2135,7 +2138,7 @@ func verificationIssues(item Evidence) []string {
 		return nil
 	}
 	return []string{fmt.Sprintf(
-		"evidence awaiting verification (run proctor verify --scenario %s --session %s --notes '...')",
+		"evidence awaiting verification (run proctor verify --scenario %s --session %s --verdict '...')",
 		item.ScenarioID, item.Provenance.SessionID,
 	)}
 }
@@ -2462,6 +2465,38 @@ func validateObservationQuality(text, fieldName string, minLen int) error {
 		}
 	}
 	return nil
+}
+
+// verdictJudgmentWords are words that indicate the agent made an actual
+// judgment about whether the evidence satisfies the contract, rather than
+// just describing pixels.
+var verdictJudgmentWords = []string{
+	"satisfies",
+	"confirms",
+	"proves",
+	"demonstrates",
+	"fails",
+	"does not",
+	"missing",
+	"incorrect",
+	"because",
+}
+
+// validateVerdictJudgment checks that a verdict contains at least one
+// judgment word, forcing the agent to state whether the evidence satisfies
+// the scenario contract rather than just describing what it sees.
+func validateVerdictJudgment(text string) error {
+	lower := strings.ToLower(text)
+	for _, word := range verdictJudgmentWords {
+		if strings.Contains(lower, word) {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"verdict must state whether the evidence satisfies the contract; "+
+			"include at least one judgment word (%s)",
+		strings.Join(verdictJudgmentWords, ", "),
+	)
 }
 
 func distinctWords(text string) int {

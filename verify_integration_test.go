@@ -186,17 +186,18 @@ func runProctorCLIExpectFail(t *testing.T, binary, repoRoot, proctorHome string,
 }
 
 // verifyAllScenariosCLI runs `proctor verify` for every scenario id in
-// scenarios using the shared session id. Notes are scenario-specific but
-// always long enough to pass the MinObservationNotesLength gate.
+// scenarios using the shared session id. Verdicts are scenario-specific but
+// always long enough to pass the MinVerdictLength gate and include a
+// judgment word.
 func verifyAllScenariosCLI(t *testing.T, binary, repoRoot, proctorHome, sessionID string, scenarios []string) {
 	t.Helper()
 	for _, scenarioID := range scenarios {
-		notes := "terminal shows the " + scenarioID + " scenario output clearly with no unexpected stack traces"
+		verdict := "This satisfies the " + scenarioID + " contract because the terminal shows the expected output clearly with no unexpected stack traces"
 		runProctorCLI(t, binary, repoRoot, proctorHome,
 			"verify",
 			"--scenario", scenarioID,
 			"--session", sessionID,
-			"--notes", notes,
+			"--verdict", verdict,
 		)
 	}
 }
@@ -240,32 +241,32 @@ func TestVerifyFlow_DoneBlocksWithoutVerify(t *testing.T) {
 	}
 }
 
-func TestVerifyFlow_EmptyNotesRejected(t *testing.T) {
+func TestVerifyFlow_EmptyVerdictRejected(t *testing.T) {
 	fx := newVerifyFixture(t)
 	fx.startCLIRun(t)
-	fx.recordCLIScenario(t, "happy-path", "empty-notes-session")
+	fx.recordCLIScenario(t, "happy-path", "empty-verdict-session")
 
 	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
 		"verify",
 		"--scenario", "happy-path",
-		"--session", "empty-notes-session",
-		"--notes", "",
+		"--session", "empty-verdict-session",
+		"--verdict", "",
 	)
-	if !strings.Contains(output, "--notes") {
-		t.Fatalf("expected empty --notes rejection to mention --notes flag, got:\n%s", output)
+	if !strings.Contains(output, "--verdict") {
+		t.Fatalf("expected empty --verdict rejection to mention --verdict flag, got:\n%s", output)
 	}
 }
 
-func TestVerifyFlow_ShortNotesRejected(t *testing.T) {
+func TestVerifyFlow_ShortVerdictRejected(t *testing.T) {
 	fx := newVerifyFixture(t)
 	fx.startCLIRun(t)
-	fx.recordCLIScenario(t, "happy-path", "short-notes-session")
+	fx.recordCLIScenario(t, "happy-path", "short-verdict-session")
 
 	output, _ := runProctorCLIExpectFail(t, fx.binary, fx.repoRoot, fx.proctorHome,
 		"verify",
 		"--scenario", "happy-path",
-		"--session", "short-notes-session",
-		"--notes", "ok",
+		"--session", "short-verdict-session",
+		"--verdict", "ok",
 	)
 	if !strings.Contains(output, "must be specific") {
 		t.Fatalf("expected quality rejection to mention specificity rule, got:\n%s", output)
@@ -284,7 +285,7 @@ func TestVerifyFlow_UnknownScenarioRejected(t *testing.T) {
 		"verify",
 		"--scenario", "doesnt-exist",
 		"--session", "unknown-scenario-session",
-		"--notes", "this text is definitely long enough to clear the minimum observation length gate",
+		"--verdict", "This satisfies the contract because the text is long enough to clear the minimum verdict length gate",
 	)
 	if !strings.Contains(output, "no evidence for scenario") {
 		t.Fatalf("expected unknown-scenario rejection to mention missing evidence, got:\n%s", output)
@@ -305,7 +306,7 @@ func TestVerifyFlow_DoubleVerifyRejected(t *testing.T) {
 		"verify",
 		"--scenario", "happy-path",
 		"--session", "double-verify-session",
-		"--notes", "second attempt at verifying the same evidence should not be allowed",
+		"--verdict", "This satisfies the contract because the second attempt at verifying the same evidence should not be allowed",
 	)
 	if !strings.Contains(output, "already verified") {
 		t.Fatalf("expected double-verify rejection to mention already-verified, got:\n%s", output)
@@ -409,12 +410,12 @@ func TestVerifyFlow_EvidenceJSONLContainsNotesAndStatus(t *testing.T) {
 	fx.startCLIRun(t)
 	fx.recordCLIScenario(t, "happy-path", "jsonl-session")
 
-	notes := "verified observation notes captured by the jsonl integration test for the happy path"
+	notes := "This satisfies the contract because the verified observation captured by the jsonl integration test confirms the happy path"
 	runProctorCLI(t, fx.binary, fx.repoRoot, fx.proctorHome,
 		"verify",
 		"--scenario", "happy-path",
 		"--session", "jsonl-session",
-		"--notes", notes,
+		"--verdict", notes,
 	)
 
 	runsRoot := filepath.Join(fx.proctorHome, "runs")

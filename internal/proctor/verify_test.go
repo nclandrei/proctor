@@ -46,7 +46,7 @@ func setupVerifyFixture(t *testing.T) (*Store, Run, string) {
 func TestVerifyEvidenceHappyPath(t *testing.T) {
 	store, run, _ := setupVerifyFixture(t)
 
-	notes := "dashboard page with welcome banner and navigation menu on the left showing four items"
+	notes := "This satisfies the contract because the dashboard page shows a welcome banner and navigation menu on the left showing four items"
 	if err := VerifyEvidence(store, run, "happy-path", "verify-session-1", notes); err != nil {
 		t.Fatalf("VerifyEvidence failed: %v", err)
 	}
@@ -70,38 +70,62 @@ func TestVerifyEvidenceHappyPath(t *testing.T) {
 	}
 }
 
-func TestVerifyEvidenceRequiresNotes(t *testing.T) {
+func TestVerifyEvidenceRequiresVerdict(t *testing.T) {
 	store, run, _ := setupVerifyFixture(t)
 
 	err := VerifyEvidence(store, run, "happy-path", "verify-session-1", "")
 	if err == nil {
-		t.Fatal("expected empty notes to be rejected")
+		t.Fatal("expected empty verdict to be rejected")
 	}
-	if !strings.Contains(err.Error(), "notes required") {
-		t.Fatalf("expected notes required error, got: %v", err)
+	if !strings.Contains(err.Error(), "verdict required") {
+		t.Fatalf("expected verdict required error, got: %v", err)
 	}
 
 	err = VerifyEvidence(store, run, "happy-path", "verify-session-1", "   \t\n  ")
 	if err == nil {
-		t.Fatal("expected whitespace-only notes to be rejected")
+		t.Fatal("expected whitespace-only verdict to be rejected")
 	}
-	if !strings.Contains(err.Error(), "notes required") {
-		t.Fatalf("expected notes required error for whitespace, got: %v", err)
+	if !strings.Contains(err.Error(), "verdict required") {
+		t.Fatalf("expected verdict required error for whitespace, got: %v", err)
 	}
 }
 
-func TestVerifyEvidenceRequiresMinNotesLength(t *testing.T) {
+func TestVerifyEvidenceRequiresMinVerdictLength(t *testing.T) {
 	store, run, _ := setupVerifyFixture(t)
 
 	err := VerifyEvidence(store, run, "happy-path", "verify-session-1", "too short")
 	if err == nil {
-		t.Fatal("expected short notes to be rejected")
+		t.Fatal("expected short verdict to be rejected")
 	}
 	if !strings.Contains(err.Error(), "must be specific") {
-		t.Fatalf("expected observation quality error, got: %v", err)
+		t.Fatalf("expected verdict quality error, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), fmt.Sprintf("got %d chars", len("too short"))) {
 		t.Fatalf("expected error to mention observed char count, got: %v", err)
+	}
+}
+
+func TestVerifyEvidenceRejectsVerdictWithoutJudgmentWord(t *testing.T) {
+	store, run, _ := setupVerifyFixture(t)
+
+	// This text is long enough and has enough words but lacks any judgment word.
+	err := VerifyEvidence(store, run, "happy-path", "verify-session-1",
+		"the dashboard displays a greeting message and a button in the top right corner of the page")
+	if err == nil {
+		t.Fatal("expected verdict without judgment word to be rejected")
+	}
+	if !strings.Contains(err.Error(), "judgment word") {
+		t.Fatalf("expected judgment word error, got: %v", err)
+	}
+}
+
+func TestVerifyEvidenceAcceptsProperVerdict(t *testing.T) {
+	store, run, _ := setupVerifyFixture(t)
+
+	err := VerifyEvidence(store, run, "happy-path", "verify-session-1",
+		"This satisfies the contract because the dashboard greeting and Sign out link match the expected behavior")
+	if err != nil {
+		t.Fatalf("expected proper verdict to be accepted, got: %v", err)
 	}
 }
 
@@ -400,7 +424,7 @@ func TestRecordEmitsVerificationInstruction(t *testing.T) {
 		"proctor verify",
 		"--scenario happy-path",
 		"--session instruction-session",
-		"--notes",
+		"--verdict",
 	} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("expected record output to include %q, got: %q", needle, output)

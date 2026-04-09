@@ -421,19 +421,22 @@ proctor record curl \
 
 Every `proctor record` call that produces a screenshot marks that evidence
 `pending-verification`. Before `proctor done` can pass, the agent must
-re-read the image it just recorded, write a short description of what is
-actually visible, and commit that observation with `proctor verify`:
+re-read the image it just recorded, compare what is visible against the
+scenario's contract claim, and write a **verdict** stating whether the
+evidence satisfies the contract:
 
 ```bash
 proctor verify \
   --scenario happy-path \
   --session auth-browser-1 \
-  --notes "dashboard greets 'Hello, demo@example.com' with a Sign out button top right"
+  --verdict "This satisfies the happy-path contract because the dashboard shows 'Hello, demo@example.com' and the Sign out button is visible top-right, matching the expected redirect-to-dashboard behavior."
 ```
 
-Notes must be at least 20 characters and should describe specific, falsifiable
-details visible in the image rather than vague claims like "ok" or
-"looks good". Each evidence record can only be verified once.
+Verdicts must be at least 40 characters and must include at least one
+judgment word (satisfies, confirms, proves, demonstrates, fails,
+does not, missing, incorrect, because). This forces the agent to state
+whether the evidence satisfies the contract rather than just describing
+pixels. Each evidence record can only be verified once.
 
 ### 10. Check Coverage And Finish
 
@@ -667,9 +670,10 @@ CLI:
 - `proctor record curl`
   Wraps and records one real HTTP command for one scenario.
 - `proctor verify`
-  Stores the agent's written observation of a recorded screenshot and flips
-  that evidence from pending-verification to complete. Mandatory after every
-  `proctor record` call that produces a screenshot.
+  Stores the agent's verdict on whether a recorded screenshot satisfies the
+  scenario contract and flips that evidence from pending-verification to
+  complete. Mandatory after every `proctor record` call that produces a
+  screenshot.
 - `proctor done`
   Fails until the contract is satisfied.
 - `proctor report`

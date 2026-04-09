@@ -102,7 +102,7 @@ func TestRunIOSFlowViaCLI(t *testing.T) {
 				"verify",
 				"--scenario", scenarioID,
 				"--session", "pagena-library-1",
-				"--notes", "library screen visible with list of reader items and bottom navigation tabs in foreground",
+				"--verdict", "This satisfies the contract because the library screen shows a list of reader items and bottom navigation tabs in foreground",
 			}); err != nil {
 				t.Fatal(err)
 			}

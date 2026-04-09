@@ -91,7 +91,7 @@ func TestRunDesktopFlowViaCLI(t *testing.T) {
 				"verify",
 				"--scenario", scenarioID,
 				"--session", "firefox-desktop-1",
-				"--notes", "Firefox bookmark manager window visible with Bookmarks title and saved entries list shown",
+				"--verdict", "This satisfies the contract because the Firefox bookmark manager window shows the Bookmarks title and saved entries list",
 			}); err != nil {
 				t.Fatal(err)
 			}

@@ -128,11 +128,8 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 	}
 	md.WriteString("\n## Scenario Status\n\n")
 	for _, scenario := range scenarios {
+		// Scenario status + contract claim
 		md.WriteString(fmt.Sprintf("### %s\n\n", scenario.Eval.Scenario.Label))
-		md.WriteString(fmt.Sprintf("- Scenario ID: `%s`\n", scenario.Eval.Scenario.ID))
-		if scenario.Eval.Scenario.CurlRequired && len(scenario.Eval.Scenario.CurlEndpoints) > 0 {
-			md.WriteString(fmt.Sprintf("- curl contract: `%s`\n", strings.Join(scenario.Eval.Scenario.CurlEndpoints, "`, `")))
-		}
 		for _, surface := range scenario.Eval.Scenario.RequiredSurfaces() {
 			ok, _ := scenario.Eval.SurfaceStatus(surface)
 			if ok {
@@ -156,30 +153,15 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 			}
 		}
 
-		// Screenshot log (step-by-step verification walkthrough)
-		scenarioLogs := logIndex[scenario.Eval.Scenario.ID]
-		if len(scenarioLogs) > 0 {
-			md.WriteString("\n**Verification steps:**\n\n")
-			for _, entry := range scenarioLogs {
-				md.WriteString(fmt.Sprintf("**Step %d** (%s)\n\n", entry.Step, formatTimestamp(entry.CreatedAt)))
-				md.WriteString(fmt.Sprintf("- **Action:** %s\n", entry.Action))
-				md.WriteString(fmt.Sprintf("- **Observation:** %s\n", entry.Observation))
-				md.WriteString(fmt.Sprintf("- **Comparison:** %s\n", entry.Comparison))
-				if entry.ScreenshotPath != "" {
-					md.WriteString(fmt.Sprintf("- Screenshot: ![step %d](%s)\n", entry.Step, entry.ScreenshotPath))
-				}
-				md.WriteString("\n")
+		// Verdict (renamed from observation notes)
+		for _, item := range scenario.Evidence {
+			if item.Notes != "" {
+				md.WriteString(fmt.Sprintf("\n> **Verdict:** %s\n\n", item.Notes))
 			}
 		}
 
+		// Assertions
 		for _, item := range scenario.Evidence {
-			md.WriteString(fmt.Sprintf("\n#### %s Evidence\n\n", titleCase(item.Surface)))
-			for _, line := range evidenceSummaryLines(item) {
-				md.WriteString(fmt.Sprintf("- %s\n", line))
-			}
-			if item.Notes != "" {
-				md.WriteString(fmt.Sprintf("\n> **Observation notes:** %s\n\n", item.Notes))
-			}
 			for _, assertion := range item.Assertions {
 				icon := "FAIL"
 				if assertion.Result == AssertionPass {
@@ -194,6 +176,10 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 					md.WriteString(fmt.Sprintf("  - note: %s\n", assertion.Message))
 				}
 			}
+		}
+
+		// Artifact links
+		for _, item := range scenario.Evidence {
 			for _, artifact := range item.Artifacts {
 				md.WriteString(fmt.Sprintf("- Artifact: [%s](%s)\n", artifact.Label, artifact.Path))
 				if artifact.Kind == ArtifactImage {
@@ -201,6 +187,37 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
 				}
 			}
 		}
+
+		// Technical metadata
+		md.WriteString(fmt.Sprintf("\n- Scenario ID: `%s`\n", scenario.Eval.Scenario.ID))
+		if scenario.Eval.Scenario.CurlRequired && len(scenario.Eval.Scenario.CurlEndpoints) > 0 {
+			md.WriteString(fmt.Sprintf("- curl contract: `%s`\n", strings.Join(scenario.Eval.Scenario.CurlEndpoints, "`, `")))
+		}
+		for _, item := range scenario.Evidence {
+			md.WriteString(fmt.Sprintf("\n<details><summary>%s evidence details</summary>\n\n", titleCase(item.Surface)))
+			for _, line := range evidenceSummaryLines(item) {
+				md.WriteString(fmt.Sprintf("- %s\n", line))
+			}
+			md.WriteString("\n</details>\n")
+		}
+
+		// Screenshot log (step-by-step verification walkthrough)
+		scenarioLogs := logIndex[scenario.Eval.Scenario.ID]
+		if len(scenarioLogs) > 0 {
+			md.WriteString("\n<details><summary>Verification steps</summary>\n\n")
+			for _, entry := range scenarioLogs {
+				md.WriteString(fmt.Sprintf("**Step %d** (%s)\n\n", entry.Step, formatTimestamp(entry.CreatedAt)))
+				md.WriteString(fmt.Sprintf("- **Action:** %s\n", entry.Action))
+				md.WriteString(fmt.Sprintf("- **Observation:** %s\n", entry.Observation))
+				md.WriteString(fmt.Sprintf("- **Comparison:** %s\n", entry.Comparison))
+				if entry.ScreenshotPath != "" {
+					md.WriteString(fmt.Sprintf("- Screenshot: ![step %d](%s)\n", entry.Step, entry.ScreenshotPath))
+				}
+				md.WriteString("\n")
+			}
+			md.WriteString("</details>\n")
+		}
+
 		md.WriteString("\n")
 	}
 
@@ -296,6 +313,17 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
     .thumb { display: block; cursor: zoom-in; }
     .thumb img { width: 100%; max-height: 180px; object-fit: contain; display: block; border-top: 1px solid var(--border); }
     .thumb-note { font-size: 0.7em; color: var(--muted); padding: 2px 8px; }
+    .screenshot-gallery { margin: 12px 0; }
+    .screenshot-gallery .screenshot-item { margin: 8px 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .screenshot-gallery .screenshot-item .artifact-head { padding: 4px 8px; font-size: 0.8em; background: #f6f8fa; }
+    .screenshot-gallery .screenshot-item a.thumb img { width: 100%; min-width: 400px; max-height: 400px; object-fit: contain; display: block; border-top: 1px solid var(--border); }
+    .verdict-box { margin: 12px 0; padding: 8px 12px; background: #dafbe1; border-left: 3px solid var(--pass); border-radius: 2px; }
+    .verdict-box .verdict-contract { font-size: 0.78em; color: var(--muted); margin-bottom: 4px; }
+    .verdict-box .verdict-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--pass); font-weight: 600; margin-bottom: 2px; }
+    .verdict-box .verdict-text { font-size: 0.85em; white-space: pre-wrap; }
+    .evidence-details { margin: 8px 0; }
+    .evidence-details > summary { font-size: 0.82em; color: var(--muted); cursor: pointer; padding: 4px 0; }
+    .evidence-details .evidence-meta { padding: 6px 0; }
     .transcript { border-top: 1px solid var(--border); }
     .transcript > summary { padding: 6px 8px; cursor: pointer; font-size: 0.82em; color: var(--muted); }
     .line-count { font-size: 0.8em; color: #0969da; }
@@ -353,9 +381,11 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
   <details class="scenario" id="scenario-{{ $i }}"{{ if not (scenarioComplete $eval) }} open{{ end }}>
     <summary><span class="badge {{ scenarioTone $eval }}">{{ if scenarioComplete $eval }}PASS{{ else }}FAIL{{ end }}</span> {{ $eval.Scenario.Label }} <span class="muted">({{ title $eval.Scenario.Kind }})</span> — {{ range scenarioSurfaces $eval.Scenario }}{{ if surfaceOK $eval . }}<span class="pass">{{ surfaceTitle . }} ✓</span> {{ else }}<span class="fail">{{ surfaceTitle . }} ✗</span> {{ end }}{{ end }}</summary>
     <div class="scenario-body">
-      <div class="scenario-id"><code>{{ $eval.Scenario.ID }}</code></div>
-      {{ if and $eval.Scenario.CurlRequired $eval.Scenario.CurlEndpoints }}<p class="muted">curl: {{ range $ci, $ep := $eval.Scenario.CurlEndpoints }}{{ if $ci }}, {{ end }}<code>{{ $ep }}</code>{{ end }}</p>{{ end }}
+      {{/* 1. Scenario contract claim */}}
+      <p style="font-size:1.05em;margin:4px 0 10px;"><strong>{{ $eval.Scenario.Label }}</strong></p>
       {{ range scenarioSurfaces $eval.Scenario }}{{ if not (surfaceOK $eval .) }}<ul class="issue-list">{{ range surfaceIssues $eval . }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}{{ end }}
+
+      {{/* 2. Pre-test notes */}}
       {{ if $s.PreNotes }}
       <div class="pre-notes">
         <div class="notes-label">Pre-test notes</div>
@@ -367,82 +397,127 @@ func RenderReports(run Run, runDir string, eval Evaluation, evidence []Evidence,
         {{ end }}
       </div>
       {{ end }}
+
+      {{/* 3. Screenshots — shown large and prominent */}}
       {{ if $s.LogEntries }}
-      <div class="pre-notes">
+      <div class="screenshot-gallery">
         <div class="notes-label">Verification Steps</div>
         {{ range $s.LogEntries }}
-        <div class="evidence" style="padding:8px 0;">
-          <h4>Step {{ .Step }}</h4>
-          {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">{{ formatTimestamp .CreatedAt }}</div>{{ end }}
-          <ul class="kv-list">
-            <li><strong>Action:</strong> {{ .Action }}</li>
-            <li><strong>Observation:</strong> {{ .Observation }}</li>
-            <li><strong>Comparison:</strong> {{ .Comparison }}</li>
-          </ul>
-          {{ if .InlineSource }}
-          <div class="artifact-grid">
-            <div class="artifact">
-              <div class="artifact-head"><span class="artifact-name">Step {{ .Step }}</span></div>
-              <a class="thumb" href="#{{ .ModalID }}"><img src="{{ .InlineSource }}" alt="Step {{ .Step }}"></a>
-              <div class="lightbox" id="{{ .ModalID }}">
-                <a class="lightbox-bg" href="#" aria-label="Close"></a>
-                <figure class="lightbox-panel">
-                  <div class="lightbox-head"><figcaption>Step {{ .Step }}</figcaption><a class="lightbox-close" href="#">Close</a></div>
-                  <img src="{{ .InlineSource }}" alt="Step {{ .Step }}">
-                </figure>
-              </div>
-            </div>
+        {{ if .InlineSource }}
+        <div class="screenshot-item">
+          <div class="artifact-head"><span class="artifact-name">Step {{ .Step }}</span><span class="muted">{{ .Action }}</span></div>
+          <a class="thumb" href="#{{ .ModalID }}"><img src="{{ .InlineSource }}" alt="Step {{ .Step }}"></a>
+          <div class="lightbox" id="{{ .ModalID }}">
+            <a class="lightbox-bg" href="#" aria-label="Close"></a>
+            <figure class="lightbox-panel">
+              <div class="lightbox-head"><figcaption>Step {{ .Step }}</figcaption><a class="lightbox-close" href="#">Close</a></div>
+              <img src="{{ .InlineSource }}" alt="Step {{ .Step }}">
+            </figure>
           </div>
-          {{ end }}
         </div>
+        {{ end }}
         {{ end }}
       </div>
       {{ end }}
       {{ range $s.Evidence }}
-      <div class="evidence">
-        <h4 class="evidence-label">{{ surfaceTitle .Surface }} Evidence</h4>
-        {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">Captured: {{ formatTimestamp .CreatedAt }}</div>{{ end }}
-        {{ if .Summary }}<ul class="kv-list">{{ range .Summary }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
-        {{ if .Notes }}<div class="notes"><div class="notes-label">Observation notes</div>{{ .Notes }}</div>{{ end }}
-        <ul class="assertion-list">
-          {{ range .Assertions }}
-          <li>
-            <span class="assertion-tag {{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">{{ if eq .Result "pass" }}PASS{{ else }}FAIL{{ end }}</span>
-            <code>{{ .Description }}</code>
-            {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ .Actual }}</code></span>{{ end }}
-            {{ if .Message }}<span class="detail">{{ .Message }}</span>{{ end }}
-          </li>
-          {{ end }}
-        </ul>
-        {{ if .Artifacts }}
-        <div class="artifact-grid">
+      {{ if .Artifacts }}
+      <div class="screenshot-gallery">
+        {{ range .Artifacts }}
+        {{ if .InlineSource }}
+        <div class="screenshot-item">
+          <div class="artifact-head"><span class="artifact-name">{{ .Label }}</span><a class="artifact-file" href="{{ .Path }}">file</a></div>
+          <a class="thumb" href="#{{ .ModalID }}"><img src="{{ .InlineSource }}" alt="{{ .Label }}"></a>
+          <div class="thumb-note">Click to enlarge</div>
+          <div class="lightbox" id="{{ .ModalID }}">
+            <a class="lightbox-bg" href="#" aria-label="Close"></a>
+            <figure class="lightbox-panel">
+              <div class="lightbox-head"><figcaption>{{ .Label }}</figcaption><a class="lightbox-close" href="#">Close</a></div>
+              <img src="{{ .InlineSource }}" alt="{{ .Label }}">
+            </figure>
+          </div>
+        </div>
+        {{ end }}
+        {{ end }}
+      </div>
+      {{ end }}
+      {{ end }}
+
+      {{/* 4. Verdict — renamed from observation notes, with contract claim */}}
+      {{ range $s.Evidence }}
+      {{ if .Notes }}
+      <div class="verdict-box">
+        <div class="verdict-contract">Contract: {{ $eval.Scenario.Label }}</div>
+        <div class="verdict-label">Verdict</div>
+        <div class="verdict-text">{{ .Notes }}</div>
+      </div>
+      {{ end }}
+      {{ end }}
+
+      {{/* 5. Assertions — compact */}}
+      {{ range $s.Evidence }}
+      {{ if .Assertions }}
+      <ul class="assertion-list">
+        {{ range .Assertions }}
+        <li>
+          <span class="assertion-tag {{ if eq .Result "pass" }}pass{{ else }}fail{{ end }}">{{ if eq .Result "pass" }}PASS{{ else }}FAIL{{ end }}</span>
+          <code>{{ .Description }}</code>
+          {{ if or .Expected .Actual }}<span class="detail">expected: <code>{{ .Expected }}</code> · actual: <code>{{ .Actual }}</code></span>{{ end }}
+          {{ if .Message }}<span class="detail">{{ .Message }}</span>{{ end }}
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+      {{ end }}
+
+      {{/* 6. Technical metadata — collapsed */}}
+      {{ range $s.Evidence }}
+      <details class="evidence-details">
+        <summary>Evidence details — {{ surfaceTitle .Surface }}{{ if not .CreatedAt.IsZero }} · <span class="evidence-timestamp">Captured: {{ formatTimestamp .CreatedAt }}</span>{{ end }}</summary>
+        <div class="evidence-meta">
+          {{ if .Summary }}<ul class="kv-list">{{ range .Summary }}<li>{{ . }}</li>{{ end }}</ul>{{ end }}
+          {{ if .Artifacts }}
           {{ range .Artifacts }}
-          <div class="artifact{{ if .HasInlineText }} artifact-wide{{ end }}">
+          {{ if .HasInlineText }}
+          <div class="artifact artifact-wide">
             <div class="artifact-head"><span class="artifact-name">{{ .Label }}</span><a class="artifact-file" href="{{ .Path }}">file</a></div>
-            {{ if .InlineSource }}
-            <a class="thumb" href="#{{ .ModalID }}"><img src="{{ .InlineSource }}" alt="{{ .Label }}"></a>
-            <div class="thumb-note">Click to enlarge</div>
-            <div class="lightbox" id="{{ .ModalID }}">
-              <a class="lightbox-bg" href="#" aria-label="Close"></a>
-              <figure class="lightbox-panel">
-                <div class="lightbox-head"><figcaption>{{ .Label }}</figcaption><a class="lightbox-close" href="#">Close</a></div>
-                <img src="{{ .InlineSource }}" alt="{{ .Label }}">
-              </figure>
-            </div>
-            {{ else if .HasInlineText }}
             <details class="transcript">
               <summary><span>Transcript</span> <span class="line-count">{{ if gt .InlineTextLineCount 0 }}{{ .InlineTextLineCount }} lines{{ else }}empty{{ end }}</span></summary>
               <pre class="log">{{ .InlineText }}</pre>
             </details>
-            {{ else }}
+          </div>
+          {{ else if not .InlineSource }}
+          <div class="artifact">
+            <div class="artifact-head"><span class="artifact-name">{{ .Label }}</span><a class="artifact-file" href="{{ .Path }}">file</a></div>
             <p class="muted small" style="padding:4px 8px;">Linked artifact</p>
-            {{ end }}
+          </div>
+          {{ end }}
+          {{ end }}
+          {{ end }}
+        </div>
+      </details>
+      {{ end }}
+
+      {{/* Log entry details collapsed */}}
+      {{ if $s.LogEntries }}
+      <details class="evidence-details">
+        <summary>Verification step details</summary>
+        <div class="evidence-meta">
+          {{ range $s.LogEntries }}
+          <div style="padding:4px 0;border-bottom:1px solid var(--border);">
+            <h4>Step {{ .Step }}</h4>
+            {{ if not .CreatedAt.IsZero }}<div class="evidence-timestamp">{{ formatTimestamp .CreatedAt }}</div>{{ end }}
+            <ul class="kv-list">
+              <li><strong>Action:</strong> {{ .Action }}</li>
+              <li><strong>Observation:</strong> {{ .Observation }}</li>
+              <li><strong>Comparison:</strong> {{ .Comparison }}</li>
+            </ul>
           </div>
           {{ end }}
         </div>
-        {{ end }}
-      </div>
+      </details>
       {{ end }}
+
+      <div class="scenario-id muted" style="margin-top:8px;"><code>{{ $eval.Scenario.ID }}</code>{{ if and $eval.Scenario.CurlRequired $eval.Scenario.CurlEndpoints }} · curl: {{ range $ci, $ep := $eval.Scenario.CurlEndpoints }}{{ if $ci }}, {{ end }}<code>{{ $ep }}</code>{{ end }}{{ end }}</div>
     </div>
   </details>
   {{ end }}

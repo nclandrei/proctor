@@ -1833,7 +1833,7 @@ func writeScreenshotFixture(t *testing.T, dir, name, content string) string {
 // it should file additional pre-notes with FilePreNote directly.
 func filePreNotesForAll(t *testing.T, store *Store, run Run, session, notes string) {
 	t.Helper()
-	if len(notes) < MinObservationNotesLength {
+	if len(notes) < MinVerdictLength {
 		t.Fatalf("filePreNotesForAll notes too short (%d chars); test fixtures must supply real pre-notes", len(notes))
 	}
 	for _, scenario := range run.Scenarios {
@@ -1864,7 +1864,7 @@ const testPreNoteText = "about to verify this scenario end to end with the descr
 // boilerplate out of the individual test bodies.
 func verifyAllScenarios(t *testing.T, store *Store, run Run, notes string) {
 	t.Helper()
-	if len(notes) < MinObservationNotesLength {
+	if len(notes) < MinVerdictLength {
 		t.Fatalf("verifyAllScenarios notes too short (%d chars); test fixtures must supply real observations", len(notes))
 	}
 	records, err := store.loadEvidenceRaw(run)
@@ -1890,10 +1890,11 @@ func verifyAllScenarios(t *testing.T, store *Store, run Run, notes string) {
 	}
 }
 
-// testObservationNotes returns a fixed observation note that safely clears
-// the 20-character minimum for proctor verify. Tests use this when they only
-// need the verification gate to pass and the exact text is not under test.
-const testObservationNotes = "screenshot shows the expected view with the described UI elements visible"
+// testObservationNotes is a fixed verdict that safely clears the 40-character
+// minimum and judgment-word requirement for proctor verify. Tests use this
+// when they only need the verification gate to pass and the exact text is
+// not under test.
+const testObservationNotes = "This satisfies the contract because the screenshot shows the expected view with the described UI elements visible"
 
 // logStepsForAll files a log entry for every scenario in the run. Tests
 // need this because the done gate now requires at least one log entry per

@@ -147,7 +147,7 @@ Quick reference (the verification loop, one pass per scenario):
   proctor note    -> commit to intent BEFORE screenshotting ("what I'm about to test")
   proctor log     -> screenshot each step: what you did, what you see, how it compares
   proctor record  -> attach the screenshot + report + assertions
-  proctor verify  -> re-read the screenshot, write what you actually saw
+  proctor verify  -> write a verdict: does the screenshot satisfy the contract?
   proctor done    -> passes only if every scenario has note + record + verify
 
 Commands:
@@ -156,7 +156,7 @@ Commands:
   note        file pre-test intent for a (scenario, session) BEFORE recording
   log         record a step: action + screenshot + what you see + how it compares
   record      attach evidence (screenshots, reports, transcripts) to a scenario
-  verify      write observation notes after re-reading the recorded screenshot
+  verify      write a verdict: does the screenshot satisfy the scenario contract?
   done        enforce contract; fails if any scenario is incomplete
   report      generate HTML/markdown summary for the run
   help TOPIC  detailed help (start | note | log | record | verify | done | status | report)
@@ -166,7 +166,7 @@ Gates that force the agent to slow down and look:
   done refuses while any scenario has pending-verification evidence
   done refuses if any scenario has no pre-note filed
 
-Minimum lengths: pre-note 20 chars, observations/comparisons 40 chars + 4 distinct words.
+Minimum lengths: pre-note 20 chars, verdicts/observations/comparisons 40 chars + 4 distinct words.
 Vague filler like "looks good" or "as expected" is rejected.
 
 ---
@@ -190,8 +190,8 @@ Mandatory next step for the agent after reading this help:
      compares to the scenario. This is the Showboat pattern: you have eyes,
      use them, and write down what you actually see at every step.
   5. attach evidence with the relevant proctor record command(s)
-  6. re-read each recorded screenshot and call proctor verify with an
-     observation describing what is actually visible in the image
+  6. re-read each recorded screenshot and call proctor verify with a
+     verdict stating whether the evidence satisfies the scenario contract
   7. finish with proctor done
 
 Proctor does three things:
@@ -264,11 +264,11 @@ Typical web workflow:
       -H 'content-type: application/json' \
       -d '{"email":"demo@example.com","password":"wrong"}'
 
-  # Re-read each recorded screenshot and commit an observation of what it shows:
+  # Re-read each recorded screenshot and write a verdict on whether it satisfies the contract:
   proctor verify \
     --scenario happy-path \
     --session auth-browser-1 \
-    --notes "dashboard greets Hello, demo@example.com with a Sign out button top right"
+    --verdict "This satisfies the happy-path contract because the dashboard shows 'Hello, demo@example.com' and the Sign out button is visible top-right, matching the expected redirect-to-dashboard behavior."
 
   proctor status
   proctor done
@@ -683,7 +683,7 @@ After start:
   - run your platform checks
   - attach web evidence with proctor record browser, iOS evidence with proctor record ios, desktop evidence with proctor record desktop, or terminal evidence with proctor record cli
   - wrap curl with proctor record curl for the scenarios that require it on web, ios, or desktop runs
-  - re-read each recorded screenshot and close the loop with proctor verify --scenario X --session Y --notes "..."
+  - re-read each recorded screenshot and close the loop with proctor verify --scenario X --session Y --verdict "..."
   - finish with proctor done
 `)
 	b.WriteString(allPlatformRecommendationSection())
@@ -720,7 +720,7 @@ Important:
     (scenario, session) pair with proctor note --scenario X --session Y
     --notes "..." (minimum 20 chars)
   - every recorded screenshot evidence enters pending-verification and must
-    be closed with proctor verify --scenario X --session Y --notes "..." (minimum 20 chars)
+    be closed with proctor verify --scenario X --session Y --verdict "..." (minimum 40 chars)
     before proctor done can pass
 `
 }
@@ -1204,44 +1204,54 @@ Steps are numbered automatically per (scenario, session) pair.
 }
 
 func verifyHelpText() string {
-	return `proctor verify - commit the agent's observation of a recorded screenshot
+	return `proctor verify - write a verdict on whether the evidence satisfies the contract
 
 Usage:
   proctor verify \
     --scenario ID \
     --session SESSION \
-    --notes "what the screenshot actually shows"
+    --verdict "state whether the screenshot satisfies the contract and why"
 
 Required:
   --scenario ID      Scenario id matching a recorded evidence entry
   --session SESSION  Session id used when the evidence was recorded
-  --notes TEXT       Free-text observation (minimum 40 chars, 4+ distinct words)
+  --verdict TEXT     Verdict (minimum 40 chars, 4+ distinct words, must include a judgment word)
 
 Every proctor record command marks its evidence pending-verification. The
 agent is expected to:
 
-  1. open the PNG it just recorded and look at it directly
+  1. Re-read the screenshot it just recorded
      (any multimodal agent can do this with its own file-read capability)
-  2. write a short, specific description of what is actually visible in
-     the screenshot (at least 20 characters)
-  3. call proctor verify with those notes
+  2. Compare what is visible against the scenario's contract claim
+  3. State whether the evidence satisfies the contract and why, using at
+     least one judgment word: satisfies, confirms, proves,
+     demonstrates, fails, does not, missing, incorrect, because
 
 proctor done refuses to pass while any scenario's most-recent evidence is
-still pending-verification. Notes are stored alongside the evidence for the
-contract report. Each evidence record can only be verified once.
+still pending-verification. Verdicts are stored alongside the evidence for
+the contract report. Each evidence record can only be verified once.
 
-Observations should be falsifiable, not generic:
+Good verdicts connect what is visible to the contract:
 
-  bad:   "ok"
-  bad:   "looks good"
-  good:  "login form with email and password fields, submit button is
-          disabled, red error text reads 'invalid credentials'"
+  good: "This satisfies the happy-path contract because the dashboard
+         shows 'Hello, demo@example.com' and the Sign out button is
+         visible top-right, matching the expected redirect-to-dashboard
+         behavior."
+  good: "This fails the failure-path contract because the error message
+         is missing; the page shows a blank form instead of the expected
+         'invalid credentials' text."
+
+Bad verdicts describe pixels without judging the contract:
+
+  bad:  "ok"
+  bad:  "looks good"
+  bad:  "dashboard is visible" (too vague, no contract connection)
 
 Example:
   proctor verify \
     --scenario happy-path \
     --session auth-browser-1 \
-    --notes "dashboard shows greeting Hello, demo@example.com with a Sign out button top right"
+    --verdict "This satisfies the contract because the dashboard greeting and Sign out link match the expected behavior."
 `
 }
 
@@ -1269,8 +1279,8 @@ Passes only when:
 Recording a screenshot is not enough on its own. Before each proctor record
 call, run proctor note --scenario ID --session SESSION --notes "..." to
 commit to what you are about to test. After each proctor record call, run
-proctor verify --scenario ID --session SESSION --notes "..." with a short
-written observation of what the screenshot actually shows. proctor done
+proctor verify --scenario ID --session SESSION --verdict "..." with a
+verdict stating whether the evidence satisfies the contract. proctor done
 will refuse to pass while any scenario has evidence without a pre-note, or
 while any scenario still has pending-verification evidence.
 

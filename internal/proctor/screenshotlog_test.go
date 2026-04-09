@@ -471,7 +471,7 @@ func TestValidateObservationQuality(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateObservationQuality(tc.text, "test", MinObservationNotesLength)
+			err := validateObservationQuality(tc.text, "test", MinVerdictLength)
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("expected no error, got: %v", err)
