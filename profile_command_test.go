@@ -298,3 +298,79 @@ func TestStartRecordsProfileProvenance(t *testing.T) {
 		t.Fatalf("run.json should record url sourced from profile: %s", data)
 	}
 }
+
+func TestProfileLoopEndToEnd(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{"scripts":{"dev":"next dev"}}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+
+	// 1. Agent runs init; detector picks up web+url; password missing.
+	if _, _, err := runCLI(t, "init", "--test-email", "demo@example.com"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	out, _, _ := runCLI(t, "project", "show")
+	if !bytes.Contains([]byte(out), []byte("incomplete — missing")) {
+		t.Fatalf("expected profile incomplete after init without password, got: %s", out)
+	}
+	if !bytes.Contains([]byte(out), []byte("web.test_password")) {
+		t.Fatalf("missing_fields should mention web.test_password, got: %s", out)
+	}
+
+	// 2. Human supplies the password; agent stamps it.
+	if _, _, err := runCLI(t, "project", "set", "web.test_password=hunter2"); err != nil {
+		t.Fatalf("project set: %v", err)
+	}
+	out, _, _ = runCLI(t, "project", "show")
+	if bytes.Contains([]byte(out), []byte("incomplete — missing")) {
+		t.Fatalf("expected profile complete after stamp, got: %s", out)
+	}
+
+	// 3. Agent runs start; URL and platform come from profile.
+	_, _, err := runCLI(t, "start",
+		"--feature", "login flow",
+		"--curl", "skip", "--curl-skip-reason", "client-only",
+		"--happy-path", "ok.", "--failure-path", "bad.",
+		"--edge-case", "validation and malformed input=N/A: none",
+		"--edge-case", "empty or missing input=N/A: none",
+		"--edge-case", "retry or double-submit=N/A: none",
+		"--edge-case", "loading, latency, and race conditions=N/A: none",
+		"--edge-case", "network or server failure=N/A: none",
+		"--edge-case", "auth and session state=N/A: none",
+		"--edge-case", "refresh, back-navigation, and state persistence=N/A: none",
+		"--edge-case", "mobile or responsive behavior=N/A: none",
+		"--edge-case", "accessibility and keyboard behavior=N/A: none",
+		"--edge-case", "any feature-specific risks=N/A: none",
+	)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// 4. After a login, agent saves the session state; project show reports fresh.
+	src := filepath.Join(t.TempDir(), "storage.json")
+	os.WriteFile(src, []byte(`{"cookies":[{"name":"session","value":"abc"}]}`), 0o644)
+	if _, _, err := runCLI(t, "login", "save", "--file", src); err != nil {
+		t.Fatalf("login save: %v", err)
+	}
+	out, _, _ = runCLI(t, "project", "show")
+	if !bytes.Contains([]byte(out), []byte("login state: fresh")) {
+		t.Fatalf("expected fresh login state, got: %s", out)
+	}
+
+	// 5. Agent retrieves the raw path to hand to its browser tool.
+	pathOut, _, _ := runCLI(t, "project", "get", "web.login.file")
+	if string(bytes.TrimSpace([]byte(pathOut))) != "session.json" {
+		t.Fatalf("expected session.json path, got %q", pathOut)
+	}
+
+	// 6. Agent invalidates; project show reports missing again.
+	if _, _, err := runCLI(t, "login", "invalidate"); err != nil {
+		t.Fatalf("login invalidate: %v", err)
+	}
+	out, _, _ = runCLI(t, "project", "show")
+	if !bytes.Contains([]byte(out), []byte("login state: missing")) {
+		t.Fatalf("expected missing login state after invalidate, got: %s", out)
+	}
+}
