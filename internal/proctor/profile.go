@@ -53,3 +53,74 @@ func (p *Profile) Validate() error {
 	}
 	return nil
 }
+
+func (p *Profile) MissingFields() []string {
+	if p.Platform == "" {
+		return []string{"platform"}
+	}
+	var missing []string
+	switch p.Platform {
+	case PlatformWeb:
+		w := p.Web
+		if w == nil {
+			w = &WebProfile{}
+		}
+		if w.DevURL == "" {
+			missing = append(missing, "web.dev_url")
+		}
+		if w.TestEmail == "" {
+			missing = append(missing, "web.test_email")
+		}
+		if w.TestPassword == "" {
+			missing = append(missing, "web.test_password")
+		}
+	case PlatformIOS:
+		i := p.IOS
+		if i == nil {
+			i = &IOSProfile{}
+		}
+		if i.Scheme == "" {
+			missing = append(missing, "ios.scheme")
+		}
+		if i.BundleID == "" {
+			missing = append(missing, "ios.bundle_id")
+		}
+		if i.Simulator == "" {
+			missing = append(missing, "ios.simulator")
+		}
+	case PlatformDesktop:
+		d := p.Desktop
+		if d == nil {
+			d = &DesktopProfile{}
+		}
+		if d.AppName == "" {
+			missing = append(missing, "desktop.app_name")
+		}
+		if d.BundleID == "" {
+			missing = append(missing, "desktop.bundle_id")
+		}
+	case PlatformCLI:
+		c := p.CLI
+		if c == nil {
+			c = &CLIProfile{}
+		}
+		if c.Command == "" {
+			missing = append(missing, "cli.command")
+		}
+	default:
+		return []string{"platform"}
+	}
+	return missing
+}
+
+func (p *Profile) IsIncomplete() bool {
+	return len(p.MissingFields()) > 0
+}
+
+// Recompute mirrors MissingFields() into the serialized fields so a saved
+// profile tells the truth about its own completeness.
+func (p *Profile) Recompute() {
+	missing := p.MissingFields()
+	p.MissingFieldsList = missing
+	p.Incomplete = len(missing) > 0
+}
