@@ -136,3 +136,22 @@ func TestProjectGetEmitsRawValue(t *testing.T) {
 		t.Fatalf("expected raw hunter2, got %q", out)
 	}
 }
+
+func TestProjectSetStampsField(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	runCLI(t, "init", "--platform", "web", "--url", "http://x", "--test-email", "a@b.c")
+	// Password was missing; stamp it.
+	_, _, err := runCLI(t, "project", "set", "web.test_password=hunter2")
+	if err != nil {
+		t.Fatalf("project set: %v", err)
+	}
+	out, _, _ := runCLI(t, "project", "get", "web.test_password")
+	if string(bytes.TrimSpace([]byte(out))) != "hunter2" {
+		t.Fatalf("set did not persist: %q", out)
+	}
+}

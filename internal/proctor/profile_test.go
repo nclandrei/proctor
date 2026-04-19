@@ -140,3 +140,20 @@ func TestProfileFieldValueUnknown(t *testing.T) {
 		t.Fatalf("expected error for unknown field")
 	}
 }
+
+func TestProfileSetFieldWeb(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb}
+	if err := p.SetField("web.test_email", "demo@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if p.Web == nil || p.Web.TestEmail != "demo@example.com" {
+		t.Fatalf("field not set: %+v", p.Web)
+	}
+}
+
+func TestProfileSetFieldUnknown(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb}
+	if err := p.SetField("web.nope", "x"); err == nil {
+		t.Fatalf("expected error")
+	}
+}

@@ -110,6 +110,28 @@ func runProject(store *proctor.Store, cwd string, args []string) error {
 		}
 		fmt.Println(val)
 		return nil
+	case "set":
+		if len(args) < 2 {
+			return errors.New("project set requires at least one key=value pair")
+		}
+		p, err := proctor.LoadProfile(store, slug)
+		if err != nil {
+			return err
+		}
+		for _, pair := range args[1:] {
+			key, value, ok := strings.Cut(pair, "=")
+			if !ok {
+				return fmt.Errorf("invalid key=value: %s", pair)
+			}
+			if err := p.SetField(strings.TrimSpace(key), strings.TrimSpace(value)); err != nil {
+				return err
+			}
+		}
+		if err := proctor.SaveProfile(store, slug, p); err != nil {
+			return err
+		}
+		loaded, _ := proctor.LoadProfile(store, slug)
+		return printProfile(os.Stdout, store, loaded)
 	default:
 		return fmt.Errorf("unknown project subcommand: %s", args[0])
 	}

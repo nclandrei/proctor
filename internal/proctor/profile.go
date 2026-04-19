@@ -1,7 +1,10 @@
 // internal/proctor/profile.go
 package proctor
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const ProfileVersion = 1
 
@@ -227,4 +230,78 @@ func (p *Profile) FieldValue(path string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unknown field: %s", path)
+}
+
+func (p *Profile) SetField(path, value string) error {
+	switch path {
+	case "platform":
+		p.Platform = value
+		return nil
+	}
+	if strings.HasPrefix(path, "web.") {
+		if p.Web == nil {
+			p.Web = &WebProfile{}
+		}
+		switch path {
+		case "web.dev_url":
+			p.Web.DevURL = value
+		case "web.auth_url":
+			p.Web.AuthURL = value
+		case "web.test_email":
+			p.Web.TestEmail = value
+		case "web.test_password":
+			p.Web.TestPassword = value
+		case "web.login.ttl":
+			if p.Web.Login == nil {
+				p.Web.Login = &LoginConfig{File: "session.json"}
+			}
+			p.Web.Login.TTL = value
+		default:
+			return fmt.Errorf("unknown field: %s", path)
+		}
+		return nil
+	}
+	if strings.HasPrefix(path, "ios.") {
+		if p.IOS == nil {
+			p.IOS = &IOSProfile{}
+		}
+		switch path {
+		case "ios.scheme":
+			p.IOS.Scheme = value
+		case "ios.bundle_id":
+			p.IOS.BundleID = value
+		case "ios.simulator":
+			p.IOS.Simulator = value
+		default:
+			return fmt.Errorf("unknown field: %s", path)
+		}
+		return nil
+	}
+	if strings.HasPrefix(path, "desktop.") {
+		if p.Desktop == nil {
+			p.Desktop = &DesktopProfile{}
+		}
+		switch path {
+		case "desktop.app_name":
+			p.Desktop.AppName = value
+		case "desktop.bundle_id":
+			p.Desktop.BundleID = value
+		default:
+			return fmt.Errorf("unknown field: %s", path)
+		}
+		return nil
+	}
+	if strings.HasPrefix(path, "cli.") {
+		if p.CLI == nil {
+			p.CLI = &CLIProfile{}
+		}
+		switch path {
+		case "cli.command":
+			p.CLI.Command = value
+		default:
+			return fmt.Errorf("unknown field: %s", path)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown field: %s", path)
 }
