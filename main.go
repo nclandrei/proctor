@@ -925,6 +925,11 @@ func roundDuration(d time.Duration) time.Duration {
 
 func applyProfileToStartOptions(p proctor.Profile, opts *proctor.StartOptions) {
 	prov := map[string]string{}
+	// TODO: opts.Platform defaulted to "web" via flag; we cannot distinguish
+	// that default from an explicit --platform web. The profile only overrides
+	// platform when the profile is non-web, so an explicit "--platform web" is
+	// indistinguishable from the default. Accepted limitation for v1; revisit
+	// with a sentinel (e.g., pointer) if this becomes ambiguous.
 	if p.Platform != "" && opts.Platform == proctor.PlatformWeb && p.Platform != proctor.PlatformWeb {
 		opts.Platform = p.Platform
 		prov["platform"] = "profile"
