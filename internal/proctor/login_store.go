@@ -135,11 +135,21 @@ func LoginStateForProfile(s *Store, p Profile) LoginState {
 }
 
 func InvalidateLogin(s *Store, slug string) (Profile, error) {
+	existing, err := LoadProfile(s, slug)
+	if err != nil {
+		return Profile{}, err
+	}
+	if existing.Platform != PlatformWeb {
+		return Profile{}, fmt.Errorf("login invalidate requires platform=web (current: %q)", existing.Platform)
+	}
 	destPath := filepath.Join(s.ProfileDir(slug), "session.json")
 	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
 		return Profile{}, err
 	}
 	updated, err := UpdateProfile(s, slug, func(p *Profile) error {
+		if p.Platform != PlatformWeb {
+			return fmt.Errorf("login invalidate requires platform=web (current: %q)", p.Platform)
+		}
 		if p.Web != nil && p.Web.Login != nil {
 			p.Web.Login.SavedAt = ""
 			p.Web.Login.SHA256 = ""

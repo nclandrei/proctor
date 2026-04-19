@@ -104,6 +104,17 @@ func TestInvalidateLoginRemovesFileAndConfig(t *testing.T) {
 	}
 }
 
+func TestInvalidateLoginRejectsNonWeb(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformIOS, IOS: &IOSProfile{Scheme: "X", BundleID: "x", Simulator: "x"}}
+	if err := SaveProfile(s, "r", p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InvalidateLogin(s, "r"); err == nil {
+		t.Fatal("expected error for non-web platform")
+	}
+}
+
 func TestInvalidateLoginNoopWhenMissing(t *testing.T) {
 	s := newTestStore(t)
 	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
