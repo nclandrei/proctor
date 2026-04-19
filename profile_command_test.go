@@ -252,3 +252,49 @@ func TestStartFailsWhenProfileIncomplete(t *testing.T) {
 		t.Fatalf("expected error when profile missing and --url absent")
 	}
 }
+
+func TestStartRecordsProfileProvenance(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	runCLI(t, "init",
+		"--platform", "web",
+		"--url", "http://127.0.0.1:3000",
+		"--test-email", "a@b.c",
+		"--test-password", "p",
+	)
+	_, _, err := runCLI(t, "start",
+		"--feature", "x",
+		"--curl", "skip", "--curl-skip-reason", "r",
+		"--happy-path", "a", "--failure-path", "b",
+		"--edge-case", "validation and malformed input=N/A: none",
+		"--edge-case", "empty or missing input=N/A: none",
+		"--edge-case", "retry or double-submit=N/A: none",
+		"--edge-case", "loading, latency, and race conditions=N/A: none",
+		"--edge-case", "network or server failure=N/A: none",
+		"--edge-case", "auth and session state=N/A: none",
+		"--edge-case", "refresh, back-navigation, and state persistence=N/A: none",
+		"--edge-case", "mobile or responsive behavior=N/A: none",
+		"--edge-case", "accessibility and keyboard behavior=N/A: none",
+		"--edge-case", "any feature-specific risks=N/A: none",
+	)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// Find the created run.json
+	home := os.Getenv("PROCTOR_HOME")
+	matches, _ := filepath.Glob(filepath.Join(home, "runs", "*", "*", "run.json"))
+	if len(matches) != 1 {
+		t.Fatalf("expected one run.json, got %v", matches)
+	}
+	data, _ := os.ReadFile(matches[0])
+	if !bytes.Contains(data, []byte(`"profile_provenance"`)) {
+		t.Fatalf("run.json missing provenance: %s", data)
+	}
+	if !bytes.Contains(data, []byte(`"url": "profile"`)) {
+		t.Fatalf("run.json should record url sourced from profile: %s", data)
+	}
+}

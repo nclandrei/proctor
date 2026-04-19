@@ -168,6 +168,7 @@ func CreateRun(store *Store, cwd string, opts StartOptions) (Run, error) {
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
+	run.ProfileProvenance = opts.ProfileProvenance
 
 	run.HappyPath = Scenario{
 		ID:              "happy-path",

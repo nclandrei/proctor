@@ -926,43 +926,50 @@ func roundDuration(d time.Duration) time.Duration {
 }
 
 func applyProfileToStartOptions(p proctor.Profile, opts *proctor.StartOptions) {
+	prov := map[string]string{}
 	if p.Platform != "" && opts.Platform == proctor.PlatformWeb && p.Platform != proctor.PlatformWeb {
-		// User did not pass --platform (it defaulted to web); trust profile.
 		opts.Platform = p.Platform
+		prov["platform"] = "profile"
 	}
 	switch proctor.NormalizePlatform(opts.Platform) {
 	case proctor.PlatformWeb:
-		if p.Web != nil {
-			if strings.TrimSpace(opts.BrowserURL) == "" {
-				opts.BrowserURL = p.Web.DevURL
-			}
+		if p.Web != nil && strings.TrimSpace(opts.BrowserURL) == "" && p.Web.DevURL != "" {
+			opts.BrowserURL = p.Web.DevURL
+			prov["url"] = "profile"
 		}
 	case proctor.PlatformIOS:
 		if p.IOS != nil {
-			if strings.TrimSpace(opts.IOSScheme) == "" {
+			if strings.TrimSpace(opts.IOSScheme) == "" && p.IOS.Scheme != "" {
 				opts.IOSScheme = p.IOS.Scheme
+				prov["ios_scheme"] = "profile"
 			}
-			if strings.TrimSpace(opts.IOSBundleID) == "" {
+			if strings.TrimSpace(opts.IOSBundleID) == "" && p.IOS.BundleID != "" {
 				opts.IOSBundleID = p.IOS.BundleID
+				prov["ios_bundle_id"] = "profile"
 			}
-			if strings.TrimSpace(opts.IOSSimulator) == "" {
+			if strings.TrimSpace(opts.IOSSimulator) == "" && p.IOS.Simulator != "" {
 				opts.IOSSimulator = p.IOS.Simulator
+				prov["ios_simulator"] = "profile"
 			}
 		}
 	case proctor.PlatformDesktop:
 		if p.Desktop != nil {
-			if strings.TrimSpace(opts.DesktopAppName) == "" {
+			if strings.TrimSpace(opts.DesktopAppName) == "" && p.Desktop.AppName != "" {
 				opts.DesktopAppName = p.Desktop.AppName
+				prov["app_name"] = "profile"
 			}
-			if strings.TrimSpace(opts.DesktopBundleID) == "" {
+			if strings.TrimSpace(opts.DesktopBundleID) == "" && p.Desktop.BundleID != "" {
 				opts.DesktopBundleID = p.Desktop.BundleID
+				prov["app_bundle_id"] = "profile"
 			}
 		}
 	case proctor.PlatformCLI:
-		if p.CLI != nil {
-			if strings.TrimSpace(opts.CLICommand) == "" {
-				opts.CLICommand = p.CLI.Command
-			}
+		if p.CLI != nil && strings.TrimSpace(opts.CLICommand) == "" && p.CLI.Command != "" {
+			opts.CLICommand = p.CLI.Command
+			prov["cli_command"] = "profile"
 		}
+	}
+	if len(prov) > 0 {
+		opts.ProfileProvenance = prov
 	}
 }

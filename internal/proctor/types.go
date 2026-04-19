@@ -139,6 +139,7 @@ type Run struct {
 	Status             string             `json:"status"`
 	CreatedAt          time.Time          `json:"created_at"`
 	UpdatedAt          time.Time          `json:"updated_at"`
+	ProfileProvenance  map[string]string  `json:"profile_provenance,omitempty"`
 }
 
 type Scenario struct {
@@ -305,22 +306,23 @@ type DesktopIssueSummary struct {
 }
 
 type StartOptions struct {
-	Platform        string
-	Surface         string
-	Feature         string
-	BrowserURL      string
-	CLICommand      string
-	IOSScheme       string
-	IOSBundleID     string
-	IOSSimulator    string
-	DesktopAppName  string
-	DesktopBundleID string
-	CurlMode        string
-	CurlEndpoints   []string
-	CurlSkipReason  string
-	HappyPath       string
-	FailurePath     string
-	EdgeCaseInputs  []string
+	Platform          string
+	Surface           string
+	Feature           string
+	BrowserURL        string
+	CLICommand        string
+	IOSScheme         string
+	IOSBundleID       string
+	IOSSimulator      string
+	DesktopAppName    string
+	DesktopBundleID   string
+	CurlMode          string
+	CurlEndpoints     []string
+	CurlSkipReason    string
+	HappyPath         string
+	FailurePath       string
+	EdgeCaseInputs    []string
+	ProfileProvenance map[string]string
 }
 
 type BrowserRecordOptions struct {
