@@ -147,6 +147,9 @@ func runProject(store *proctor.Store, cwd string, args []string) error {
 		if err != nil {
 			return err
 		}
+		if val == "" {
+			return fmt.Errorf("field %s is empty", args[1])
+		}
 		fmt.Println(val)
 		return nil
 	case "set":
