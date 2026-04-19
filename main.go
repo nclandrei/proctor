@@ -204,6 +204,12 @@ func runStart(store *proctor.Store, cwd string, args []string) error {
 	}
 	opts.CurlEndpoints = endpoints
 	opts.EdgeCaseInputs = edgeCases
+	// Merge profile fields into opts when flags are absent.
+	if slug, err := proctor.RepoSlug(proctor.RepoRoot(cwd)); err == nil {
+		if prof, err := proctor.LoadProfile(store, slug); err == nil {
+			applyProfileToStartOptions(prof, &opts)
+		}
+	}
 	if err := validateStartFlags(&opts); err != nil {
 		return err
 	}
@@ -917,4 +923,46 @@ func printProfile(w io.Writer, store *proctor.Store, p proctor.Profile) error {
 
 func roundDuration(d time.Duration) time.Duration {
 	return d.Round(time.Second)
+}
+
+func applyProfileToStartOptions(p proctor.Profile, opts *proctor.StartOptions) {
+	if p.Platform != "" && opts.Platform == proctor.PlatformWeb && p.Platform != proctor.PlatformWeb {
+		// User did not pass --platform (it defaulted to web); trust profile.
+		opts.Platform = p.Platform
+	}
+	switch proctor.NormalizePlatform(opts.Platform) {
+	case proctor.PlatformWeb:
+		if p.Web != nil {
+			if strings.TrimSpace(opts.BrowserURL) == "" {
+				opts.BrowserURL = p.Web.DevURL
+			}
+		}
+	case proctor.PlatformIOS:
+		if p.IOS != nil {
+			if strings.TrimSpace(opts.IOSScheme) == "" {
+				opts.IOSScheme = p.IOS.Scheme
+			}
+			if strings.TrimSpace(opts.IOSBundleID) == "" {
+				opts.IOSBundleID = p.IOS.BundleID
+			}
+			if strings.TrimSpace(opts.IOSSimulator) == "" {
+				opts.IOSSimulator = p.IOS.Simulator
+			}
+		}
+	case proctor.PlatformDesktop:
+		if p.Desktop != nil {
+			if strings.TrimSpace(opts.DesktopAppName) == "" {
+				opts.DesktopAppName = p.Desktop.AppName
+			}
+			if strings.TrimSpace(opts.DesktopBundleID) == "" {
+				opts.DesktopBundleID = p.Desktop.BundleID
+			}
+		}
+	case proctor.PlatformCLI:
+		if p.CLI != nil {
+			if strings.TrimSpace(opts.CLICommand) == "" {
+				opts.CLICommand = p.CLI.Command
+			}
+		}
+	}
 }

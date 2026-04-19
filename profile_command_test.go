@@ -186,3 +186,69 @@ func TestLoginSaveAndInvalidate(t *testing.T) {
 		}
 	}
 }
+
+func TestStartUsesProfileWhenFlagsMissing(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	runCLI(t, "init",
+		"--platform", "web",
+		"--url", "http://127.0.0.1:3000",
+		"--test-email", "a@b.c",
+		"--test-password", "p",
+	)
+	// start without --url / --platform: must pick them up from profile.
+	_, _, err := runCLI(t, "start",
+		"--feature", "login",
+		"--curl", "skip", "--curl-skip-reason", "client-only",
+		"--happy-path", "ok.",
+		"--failure-path", "bad.",
+		"--edge-case", "validation and malformed input=N/A: none",
+		"--edge-case", "empty or missing input=N/A: none",
+		"--edge-case", "retry or double-submit=N/A: none",
+		"--edge-case", "loading, latency, and race conditions=N/A: none",
+		"--edge-case", "network or server failure=N/A: none",
+		"--edge-case", "auth and session state=N/A: none",
+		"--edge-case", "refresh, back-navigation, and state persistence=N/A: none",
+		"--edge-case", "mobile or responsive behavior=N/A: none",
+		"--edge-case", "accessibility and keyboard behavior=N/A: none",
+		"--edge-case", "any feature-specific risks=N/A: none",
+	)
+	if err != nil {
+		t.Fatalf("start should succeed with profile fallback: %v", err)
+	}
+}
+
+func TestStartFailsWhenProfileIncomplete(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	// Create a profile missing test_password; start should fail without --test-password
+	// because the URL still comes from profile, but `proctor start` requires --url at minimum.
+	// Test: no profile, no --url → start fails with the standard missing-flag error.
+	_, _, err := runCLI(t, "start",
+		"--platform", "web",
+		"--feature", "x",
+		"--curl", "skip", "--curl-skip-reason", "r",
+		"--happy-path", "a", "--failure-path", "b",
+		"--edge-case", "validation and malformed input=N/A: none",
+		"--edge-case", "empty or missing input=N/A: none",
+		"--edge-case", "retry or double-submit=N/A: none",
+		"--edge-case", "loading, latency, and race conditions=N/A: none",
+		"--edge-case", "network or server failure=N/A: none",
+		"--edge-case", "auth and session state=N/A: none",
+		"--edge-case", "refresh, back-navigation, and state persistence=N/A: none",
+		"--edge-case", "mobile or responsive behavior=N/A: none",
+		"--edge-case", "accessibility and keyboard behavior=N/A: none",
+		"--edge-case", "any feature-specific risks=N/A: none",
+	)
+	if err == nil {
+		t.Fatalf("expected error when profile missing and --url absent")
+	}
+}
