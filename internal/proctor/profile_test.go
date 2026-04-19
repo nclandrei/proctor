@@ -113,3 +113,30 @@ func TestProfileRedactedNoSecret(t *testing.T) {
 		t.Fatalf("empty password should redact to empty, got %q", r.Web.TestPassword)
 	}
 }
+
+func TestProfileFieldValueWeb(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestPassword: "hunter2",
+	}}
+	cases := map[string]string{
+		"platform":          "web",
+		"web.dev_url":       "http://x",
+		"web.test_password": "hunter2",
+	}
+	for field, want := range cases {
+		got, err := p.FieldValue(field)
+		if err != nil {
+			t.Fatalf("%s: %v", field, err)
+		}
+		if got != want {
+			t.Fatalf("%s: got %q want %q", field, got, want)
+		}
+	}
+}
+
+func TestProfileFieldValueUnknown(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{}}
+	if _, err := p.FieldValue("web.nope"); err == nil {
+		t.Fatalf("expected error for unknown field")
+	}
+}

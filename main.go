@@ -96,6 +96,20 @@ func runProject(store *proctor.Store, cwd string, args []string) error {
 			return err
 		}
 		return printProfile(os.Stdout, store, p)
+	case "get":
+		if len(args) < 2 {
+			return errors.New("project get requires <field>")
+		}
+		p, err := proctor.LoadProfile(store, slug)
+		if err != nil {
+			return err
+		}
+		val, err := p.FieldValue(args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Println(val)
+		return nil
 	default:
 		return fmt.Errorf("unknown project subcommand: %s", args[0])
 	}

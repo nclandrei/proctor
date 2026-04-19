@@ -158,3 +158,73 @@ func (p *Profile) Redacted() Profile {
 	}
 	return copied
 }
+
+// FieldValue returns the raw value of a dotted-path field (e.g. "web.test_password").
+// Used by `proctor project get` to emit exact strings without redaction.
+func (p *Profile) FieldValue(path string) (string, error) {
+	switch path {
+	case "version":
+		return fmt.Sprintf("%d", p.Version), nil
+	case "platform":
+		return p.Platform, nil
+	case "repo_slug":
+		return p.RepoSlug, nil
+	}
+	if p.Web != nil {
+		switch path {
+		case "web.dev_url":
+			return p.Web.DevURL, nil
+		case "web.auth_url":
+			return p.Web.AuthURL, nil
+		case "web.test_email":
+			return p.Web.TestEmail, nil
+		case "web.test_password":
+			return p.Web.TestPassword, nil
+		case "web.login.file":
+			if p.Web.Login != nil {
+				return p.Web.Login.File, nil
+			}
+			return "", nil
+		case "web.login.ttl":
+			if p.Web.Login != nil {
+				return p.Web.Login.TTL, nil
+			}
+			return "", nil
+		case "web.login.saved_at":
+			if p.Web.Login != nil {
+				return p.Web.Login.SavedAt, nil
+			}
+			return "", nil
+		case "web.login.sha256":
+			if p.Web.Login != nil {
+				return p.Web.Login.SHA256, nil
+			}
+			return "", nil
+		}
+	}
+	if p.IOS != nil {
+		switch path {
+		case "ios.scheme":
+			return p.IOS.Scheme, nil
+		case "ios.bundle_id":
+			return p.IOS.BundleID, nil
+		case "ios.simulator":
+			return p.IOS.Simulator, nil
+		}
+	}
+	if p.Desktop != nil {
+		switch path {
+		case "desktop.app_name":
+			return p.Desktop.AppName, nil
+		case "desktop.bundle_id":
+			return p.Desktop.BundleID, nil
+		}
+	}
+	if p.CLI != nil {
+		switch path {
+		case "cli.command":
+			return p.CLI.Command, nil
+		}
+	}
+	return "", fmt.Errorf("unknown field: %s", path)
+}

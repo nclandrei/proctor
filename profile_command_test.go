@@ -119,3 +119,20 @@ func TestProjectShowMissingProfile(t *testing.T) {
 		t.Fatalf("expected error when no profile exists")
 	}
 }
+
+func TestProjectGetEmitsRawValue(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	runCLI(t, "init", "--platform", "web", "--url", "http://x", "--test-email", "a@b.c", "--test-password", "hunter2")
+	out, _, err := runCLI(t, "project", "get", "web.test_password")
+	if err != nil {
+		t.Fatalf("project get: %v", err)
+	}
+	if bytes.TrimSpace([]byte(out))[0] != 'h' || string(bytes.TrimSpace([]byte(out))) != "hunter2" {
+		t.Fatalf("expected raw hunter2, got %q", out)
+	}
+}
