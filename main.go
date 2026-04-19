@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -53,6 +55,8 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
+	case "init":
+		return runInit(store, cwd, args[1:])
 	case "start":
 		return runStart(store, cwd, args[1:])
 	case "status":
@@ -657,3 +661,162 @@ func splitArgsAtDoubleDash(args []string) ([]string, []string) {
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }
+
+func runInit(store *proctor.Store, cwd string, args []string) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(ioDiscard{})
+	var (
+		platform, url, authURL, testEmail, testPassword string
+		iosScheme, iosBundle, iosSim                    string
+		appName, appBundle                              string
+		cliCommand                                      string
+		loginTTL                                        string
+		forceDetect                                     bool
+	)
+	fs.StringVar(&platform, "platform", "", "")
+	fs.StringVar(&url, "url", "", "")
+	fs.StringVar(&authURL, "auth-url", "", "")
+	fs.StringVar(&testEmail, "test-email", "", "")
+	fs.StringVar(&testPassword, "test-password", "", "")
+	fs.StringVar(&iosScheme, "ios-scheme", "", "")
+	fs.StringVar(&iosBundle, "ios-bundle-id", "", "")
+	fs.StringVar(&iosSim, "ios-simulator", "", "")
+	fs.StringVar(&appName, "app-name", "", "")
+	fs.StringVar(&appBundle, "app-bundle-id", "", "")
+	fs.StringVar(&cliCommand, "cli-command", "", "")
+	fs.StringVar(&loginTTL, "login-ttl", "", "")
+	fs.BoolVar(&forceDetect, "force-detect", false, "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	repoRoot := proctor.RepoRoot(cwd)
+	slug, err := proctor.RepoSlug(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	// Load existing profile if any; otherwise detect.
+	p, err := proctor.LoadProfile(store, slug)
+	switch {
+	case err == nil && forceDetect:
+		detected, _ := proctor.DetectProfile(repoRoot)
+		p = mergeProfile(detected, p)
+	case err == nil:
+		// existing profile becomes base; no detection
+	case os.IsNotExist(err):
+		detected, _ := proctor.DetectProfile(repoRoot)
+		p = detected
+	default:
+		return err
+	}
+
+	if platform != "" {
+		p.Platform = platform
+	}
+	switch p.Platform {
+	case proctor.PlatformWeb:
+		if p.Web == nil {
+			p.Web = &proctor.WebProfile{}
+		}
+		if url != "" {
+			p.Web.DevURL = url
+		}
+		if authURL != "" {
+			p.Web.AuthURL = authURL
+		}
+		if testEmail != "" {
+			p.Web.TestEmail = testEmail
+		}
+		if testPassword != "" {
+			p.Web.TestPassword = testPassword
+		}
+		if loginTTL != "" {
+			if p.Web.Login == nil {
+				p.Web.Login = &proctor.LoginConfig{File: "session.json"}
+			}
+			p.Web.Login.TTL = loginTTL
+		}
+	case proctor.PlatformIOS:
+		if p.IOS == nil {
+			p.IOS = &proctor.IOSProfile{}
+		}
+		if iosScheme != "" {
+			p.IOS.Scheme = iosScheme
+		}
+		if iosBundle != "" {
+			p.IOS.BundleID = iosBundle
+		}
+		if iosSim != "" {
+			p.IOS.Simulator = iosSim
+		}
+	case proctor.PlatformDesktop:
+		if p.Desktop == nil {
+			p.Desktop = &proctor.DesktopProfile{}
+		}
+		if appName != "" {
+			p.Desktop.AppName = appName
+		}
+		if appBundle != "" {
+			p.Desktop.BundleID = appBundle
+		}
+	case proctor.PlatformCLI:
+		if p.CLI == nil {
+			p.CLI = &proctor.CLIProfile{}
+		}
+		if cliCommand != "" {
+			p.CLI.Command = cliCommand
+		}
+	}
+
+	if err := proctor.SaveProfile(store, slug, p); err != nil {
+		return err
+	}
+	loaded, _ := proctor.LoadProfile(store, slug)
+	return printProfile(os.Stdout, store, loaded)
+}
+
+// mergeProfile returns base with empty fields filled from extra.
+func mergeProfile(extra, base proctor.Profile) proctor.Profile {
+	if base.Platform == "" {
+		base.Platform = extra.Platform
+	}
+	if extra.Web != nil {
+		if base.Web == nil {
+			base.Web = &proctor.WebProfile{}
+		}
+		if base.Web.DevURL == "" {
+			base.Web.DevURL = extra.Web.DevURL
+		}
+	}
+	return base
+}
+
+// printProfile formats the redacted profile with freshness. Used by both init
+// and `project show`.
+func printProfile(w io.Writer, store *proctor.Store, p proctor.Profile) error {
+	r := p.Redacted()
+	data, err := json.MarshalIndent(&r, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(w, string(data))
+	if p.Platform == proctor.PlatformWeb {
+		state := proctor.LoginStateForProfile(store, p)
+		fmt.Fprintf(w, "login state: %s", state.Kind)
+		if state.Kind == proctor.LoginFresh || state.Kind == proctor.LoginStale {
+			fmt.Fprintf(w, " (age %s, ttl %s)", roundDuration(state.Age), state.TTL)
+		}
+		fmt.Fprintln(w)
+	}
+	if p.Incomplete {
+		fmt.Fprintln(w, "incomplete — missing:")
+		for _, f := range p.MissingFieldsList {
+			fmt.Fprintf(w, "  - %s\n", f)
+		}
+	}
+	return nil
+}
+
+func roundDuration(d time.Duration) time.Duration {
+	return d.Round(time.Second)
+}
