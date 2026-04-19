@@ -138,10 +138,6 @@ func (p *Profile) Redacted() Profile {
 		if w.TestPassword != "" {
 			w.TestPassword = "***"
 		}
-		if w.Login != nil {
-			loginCopy := *w.Login
-			w.Login = &loginCopy
-		}
 		copied.Web = &w
 	}
 	if p.IOS != nil {
