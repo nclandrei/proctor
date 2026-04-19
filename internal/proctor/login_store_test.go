@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSaveLoginCopiesFileAndUpdatesProfile(t *testing.T) {
@@ -111,5 +112,75 @@ func TestInvalidateLoginNoopWhenMissing(t *testing.T) {
 	SaveProfile(s, "r", p)
 	if _, err := InvalidateLogin(s, "r"); err != nil {
 		t.Fatalf("expected no error when login missing, got %v", err)
+	}
+}
+
+func TestLoginStateMissing(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	SaveProfile(s, "r", p)
+	state, err := LoginStateFor(s, "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Kind != LoginMissing {
+		t.Fatalf("expected LoginMissing, got %q", state.Kind)
+	}
+}
+
+func TestLoginStateFresh(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	SaveProfile(s, "r", p)
+	src := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(src, []byte("{}"), 0o644)
+	SaveLogin(s, "r", src, "12h")
+	state, err := LoginStateFor(s, "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Kind != LoginFresh {
+		t.Fatalf("expected LoginFresh, got %q", state.Kind)
+	}
+}
+
+func TestLoginStateStale(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	SaveProfile(s, "r", p)
+	src := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(src, []byte("{}"), 0o644)
+	SaveLogin(s, "r", src, "1s")
+	// backdate SavedAt
+	loaded, _ := LoadProfile(s, "r")
+	loaded.Web.Login.SavedAt = time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	SaveProfile(s, "r", loaded)
+	state, _ := LoginStateFor(s, "r")
+	if state.Kind != LoginStale {
+		t.Fatalf("expected LoginStale, got %q", state.Kind)
+	}
+}
+
+func TestLoginStateCorrupt(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	SaveProfile(s, "r", p)
+	src := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(src, []byte("{}"), 0o644)
+	SaveLogin(s, "r", src, "12h")
+	// tamper with the saved file so hash no longer matches
+	destPath := filepath.Join(s.ProfileDir("r"), "session.json")
+	os.WriteFile(destPath, []byte(`{"tampered":true}`), 0o600)
+	state, _ := LoginStateFor(s, "r")
+	if state.Kind != LoginCorrupt {
+		t.Fatalf("expected LoginCorrupt, got %q", state.Kind)
 	}
 }

@@ -68,6 +68,61 @@ func SaveLogin(s *Store, slug, srcPath, ttlOverride string) (Profile, error) {
 	return p, nil
 }
 
+type LoginKind string
+
+const (
+	LoginMissing LoginKind = "missing"
+	LoginFresh   LoginKind = "fresh"
+	LoginStale   LoginKind = "stale"
+	LoginCorrupt LoginKind = "corrupt"
+)
+
+type LoginState struct {
+	Kind    LoginKind
+	Age     time.Duration
+	TTL     time.Duration
+	SavedAt time.Time
+}
+
+func LoginStateFor(s *Store, slug string) (LoginState, error) {
+	p, err := LoadProfile(s, slug)
+	if err != nil {
+		return LoginState{}, err
+	}
+	return LoginStateForProfile(s, p), nil
+}
+
+func LoginStateForProfile(s *Store, p Profile) LoginState {
+	if p.Web == nil || p.Web.Login == nil || p.Web.Login.SavedAt == "" || p.Web.Login.SHA256 == "" {
+		return LoginState{Kind: LoginMissing}
+	}
+	savedAt, err := time.Parse(time.RFC3339, p.Web.Login.SavedAt)
+	if err != nil {
+		return LoginState{Kind: LoginMissing}
+	}
+	destPath := filepath.Join(s.ProfileDir(p.RepoSlug), "session.json")
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		return LoginState{Kind: LoginMissing}
+	}
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != p.Web.Login.SHA256 {
+		return LoginState{Kind: LoginCorrupt, SavedAt: savedAt}
+	}
+	ttl, err := time.ParseDuration(p.Web.Login.TTL)
+	if err != nil || ttl <= 0 {
+		ttl, _ = time.ParseDuration(DefaultLoginTTL)
+	}
+	age := time.Since(savedAt)
+	state := LoginState{Age: age, TTL: ttl, SavedAt: savedAt}
+	if age > ttl {
+		state.Kind = LoginStale
+	} else {
+		state.Kind = LoginFresh
+	}
+	return state
+}
+
 func InvalidateLogin(s *Store, slug string) (Profile, error) {
 	p, err := LoadProfile(s, slug)
 	if err != nil {
