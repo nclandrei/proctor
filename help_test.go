@@ -472,3 +472,23 @@ func TestStartHelpExplainsScenarioLevelCurlPlanning(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpMentionsProjectProfile(t *testing.T) {
+	out, _, err := runCLI(t, "--help")
+	if err != nil {
+		t.Fatalf("help: %v", err)
+	}
+	required := []string{
+		"Project profile",
+		"proctor init",
+		"proctor project show",
+		"proctor project set",
+		"proctor login save",
+		"proctor login invalidate",
+	}
+	for _, s := range required {
+		if !strings.Contains(out, s) {
+			t.Fatalf("help missing %q", s)
+		}
+	}
+}

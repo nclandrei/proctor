@@ -25,6 +25,18 @@ func commandHelp(args []string) (string, bool, error) {
 	}
 
 	switch args[0] {
+	case "init":
+		if wantsHelp(args[1:]) {
+			return initHelpText(), true, nil
+		}
+	case "project":
+		if wantsHelp(args[1:]) {
+			return projectHelpText(), true, nil
+		}
+	case "login":
+		if wantsHelp(args[1:]) {
+			return loginHelpText(), true, nil
+		}
 	case "start":
 		if wantsHelp(args[1:]) {
 			return startHelpText(), true, nil
@@ -93,6 +105,12 @@ func topicHelp(args []string) (string, error) {
 	}
 
 	switch args[0] {
+	case "init":
+		return initHelpText(), nil
+	case "project":
+		return projectHelpText(), nil
+	case "login":
+		return loginHelpText(), nil
 	case "start":
 		return startHelpText(), nil
 	case "status":
@@ -143,14 +161,20 @@ func rootHelpText() string {
 	return `proctor - make a coding agent prove it manually tested its own work
 
 Quick reference (the verification loop, one pass per scenario):
-  proctor start   -> define happy path, failure path, and edge-case scenarios
-  proctor note    -> commit to intent BEFORE screenshotting ("what I'm about to test")
-  proctor log     -> screenshot each step: what you did, what you see, how it compares
-  proctor record  -> attach the screenshot + report + assertions
-  proctor verify  -> write a verification: does the screenshot satisfy the contract?
-  proctor done    -> passes only if every scenario has note + record + verify
+  proctor init           -> stamp per-repo profile (platform, dev URL, test creds)
+  proctor project show   -> inspect the stored profile (secrets redacted)
+  proctor start          -> define happy path, failure path, and edge-case scenarios
+  proctor note           -> commit to intent BEFORE screenshotting ("what I'm about to test")
+  proctor log            -> screenshot each step: what you did, what you see, how it compares
+  proctor record         -> attach the screenshot + report + assertions
+  proctor verify         -> write a verification: does the screenshot satisfy the contract?
+  proctor login save     -> reuse an authenticated browser session across runs
+  proctor done           -> passes only if every scenario has note + record + verify
 
 Commands:
+  init        create or update the per-repo profile (platform, dev URL, test creds)
+  project     inspect or stamp fields on the profile (show | get | set)
+  login       save or invalidate a reusable authenticated session (save | invalidate)
   start       create a verification contract with happy/failure/edge scenarios
   status      show contract state: missing notes, pending verifications, gaps
   note        file pre-test intent for a (scenario, session) BEFORE recording
@@ -159,7 +183,7 @@ Commands:
   verify      write a verification: does the screenshot satisfy the scenario contract?
   done        enforce contract; fails if any scenario is incomplete
   report      generate HTML/markdown summary for the run
-  help TOPIC  detailed help (start | note | log | record | verify | done | status | report)
+  help TOPIC  detailed help (init | project | login | start | note | log | record | verify | done | status | report)
 
 Gates that force the agent to slow down and look:
   record refuses without a pre-note for (scenario, session)
@@ -205,6 +229,29 @@ any other coding agent that can run shell commands.
 When helpful, proctor start, proctor status, and proctor done recommend
 known-good local capture workflows based on tools found on PATH. Those
 recommendations are optional; the contract stays tool-agnostic.
+
+## Project profile
+
+Proctor remembers per-repo context so the agent doesn't rediscover it each run.
+
+First time in a project:
+  proctor init --platform web --url http://127.0.0.1:3000 \
+    --test-email demo@example.com --test-password <stamp-or-omit>
+
+If the profile is incomplete (e.g., missing test_password), ask the human, then stamp:
+  proctor project set web.test_password=<value>
+
+Inspect the stored profile (secrets redacted):
+  proctor project show
+
+Fetch one field for your browser tool (secrets emitted raw):
+  proctor project get web.test_password
+
+Reuse the login across runs:
+  proctor login save --file /path/to/storage.json     # after a successful login
+  proctor login invalidate                             # when the login goes bad
+
+proctor start auto-fills flags from the profile; explicit flags always win.
 
 Typical prompt to give an agent:
   We just implemented the new authentication flow.
@@ -476,6 +523,9 @@ What counts as CLI evidence:
   - assertions tied to the scenario
 
 Use subcommand help for exact flags:
+  proctor init --help
+  proctor project --help
+  proctor login --help
   proctor start --help
   proctor note --help
   proctor log --help
@@ -1304,5 +1354,98 @@ Outputs:
 
 Both files live under ~/.proctor by default unless PROCTOR_HOME is set.
 The HTML report uses a light theme.
+`
+}
+
+func initHelpText() string {
+	return `proctor init - create or update the profile for this repo
+
+Usage:
+  proctor init [flags]
+
+Flags:
+  --platform {web|ios|desktop|cli}
+  --url <dev-url>
+  --auth-url "<METHOD> <path>"
+  --test-email <email>
+  --test-password <value>
+  --ios-scheme <scheme>
+  --ios-bundle-id <id>
+  --ios-simulator <name>
+  --app-name <name>
+  --app-bundle-id <id>
+  --cli-command <command>
+  --login-ttl <duration>                (default 12h; web only)
+  --force-detect                        (re-run detection even if profile exists)
+
+The command is idempotent. Missing required fields do not cause a non-zero exit;
+the written profile is flagged incomplete with missing_fields listing them.
+
+Profiles live under ~/.proctor/profiles/<repo-slug>/profile.json (0600 on the
+file, 0700 on the directory). PROCTOR_HOME overrides the storage root.
+
+Related:
+  proctor project show    inspect the stored profile (secrets redacted)
+  proctor project get     fetch one field raw (secrets emitted unredacted)
+  proctor project set     stamp a missing field on the profile
+`
+}
+
+func projectHelpText() string {
+	return `proctor project - inspect or stamp fields on the per-repo profile
+
+Usage:
+  proctor project show
+  proctor project get <field>
+  proctor project set <field>=<value> [<field>=<value> ...]
+
+Subcommands:
+  show    print the current profile with secrets redacted and
+          freshness of the saved login state when present
+  get     print one field by dotted path; secrets are emitted raw so
+          the agent can hand them to its browser tool
+  set     stamp one or more dotted fields on the profile
+
+Field paths use the platform section as the prefix, e.g.:
+  web.test_email
+  web.test_password
+  web.login.file
+  ios.bundle_id
+  desktop.app_name
+  cli.command
+
+Secrets (web.test_password, login state) are redacted in show but emitted
+raw in get so the agent can pass them to its browser tool directly.
+
+Related:
+  proctor init            create or update the profile
+  proctor login save      attach a reusable authenticated session
+  proctor login invalidate  mark the saved login bad
+`
+}
+
+func loginHelpText() string {
+	return `proctor login - manage a reusable authenticated session for the profile
+
+Usage:
+  proctor login save --file <path> [--ttl <duration>]
+  proctor login invalidate
+
+Subcommands:
+  save         record that the given storage-state file is the fresh login for
+               this repo. Copies the file into the profile so later runs can
+               reuse it without re-authenticating.
+
+               Flags:
+                 --file <path>        storage-state json emitted by your
+                                      browser tool after a successful login
+                 --ttl <duration>     optional; overrides the profile default
+                                      (web.login.ttl, typically 12h)
+
+  invalidate   mark the saved login as bad. Clears the stored session file
+               and metadata so the next run re-authenticates from scratch.
+
+proctor project show reports the freshness of the saved login ("fresh",
+"stale", or "missing") so the agent can decide whether to reuse it.
 `
 }
