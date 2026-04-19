@@ -239,6 +239,9 @@ func (p *Profile) SetField(path, value string) error {
 		return nil
 	}
 	if strings.HasPrefix(path, "web.") {
+		if err := p.guardPlatform(PlatformWeb); err != nil {
+			return err
+		}
 		if p.Web == nil {
 			p.Web = &WebProfile{}
 		}
@@ -262,6 +265,9 @@ func (p *Profile) SetField(path, value string) error {
 		return nil
 	}
 	if strings.HasPrefix(path, "ios.") {
+		if err := p.guardPlatform(PlatformIOS); err != nil {
+			return err
+		}
 		if p.IOS == nil {
 			p.IOS = &IOSProfile{}
 		}
@@ -278,6 +284,9 @@ func (p *Profile) SetField(path, value string) error {
 		return nil
 	}
 	if strings.HasPrefix(path, "desktop.") {
+		if err := p.guardPlatform(PlatformDesktop); err != nil {
+			return err
+		}
 		if p.Desktop == nil {
 			p.Desktop = &DesktopProfile{}
 		}
@@ -292,6 +301,9 @@ func (p *Profile) SetField(path, value string) error {
 		return nil
 	}
 	if strings.HasPrefix(path, "cli.") {
+		if err := p.guardPlatform(PlatformCLI); err != nil {
+			return err
+		}
 		if p.CLI == nil {
 			p.CLI = &CLIProfile{}
 		}
@@ -304,4 +316,14 @@ func (p *Profile) SetField(path, value string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown field: %s", path)
+}
+
+// guardPlatform rejects writes to a sub-block whose platform doesn't match the
+// profile's current platform. An empty platform is permissive so an agent can
+// set the first field on a freshly-created profile before platform is known.
+func (p *Profile) guardPlatform(target string) error {
+	if p.Platform == "" || p.Platform == target {
+		return nil
+	}
+	return fmt.Errorf("cannot set %s on %s profile", target, p.Platform)
 }

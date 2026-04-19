@@ -157,3 +157,30 @@ func TestProfileSetFieldUnknown(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestSetFieldRejectsCrossPlatform(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb}
+	if err := p.SetField("ios.bundle_id", "x"); err == nil {
+		t.Fatal("expected error setting ios field on web profile")
+	}
+	if p.IOS != nil {
+		t.Fatalf("cross-platform set should not have created sub-block, got: %+v", p.IOS)
+	}
+}
+
+func TestSetFieldAllowsPlatformSwitch(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb}
+	if err := p.SetField("platform", "ios"); err != nil {
+		t.Fatalf("switching platform should be allowed, got: %v", err)
+	}
+	if p.Platform != PlatformIOS {
+		t.Fatalf("platform not switched: %q", p.Platform)
+	}
+}
+
+func TestSetFieldAllowsEmptyPlatform(t *testing.T) {
+	p := Profile{Version: 1}
+	if err := p.SetField("web.dev_url", "http://x"); err != nil {
+		t.Fatalf("empty platform should be permissive: %v", err)
+	}
+}
