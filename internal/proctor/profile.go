@@ -124,3 +124,37 @@ func (p *Profile) Recompute() {
 	p.MissingFieldsList = missing
 	p.Incomplete = len(missing) > 0
 }
+
+// Redacted returns a deep copy of the profile with secret fields replaced by
+// "***" where non-empty. Used only for human-facing display (project show).
+// proctor project get reads the raw value directly; it never goes through this.
+func (p *Profile) Redacted() Profile {
+	copied := *p
+	if p.Web != nil {
+		w := *p.Web
+		if w.TestPassword != "" {
+			w.TestPassword = "***"
+		}
+		if w.Login != nil {
+			loginCopy := *w.Login
+			w.Login = &loginCopy
+		}
+		copied.Web = &w
+	}
+	if p.IOS != nil {
+		iosCopy := *p.IOS
+		copied.IOS = &iosCopy
+	}
+	if p.Desktop != nil {
+		deskCopy := *p.Desktop
+		copied.Desktop = &deskCopy
+	}
+	if p.CLI != nil {
+		cliCopy := *p.CLI
+		copied.CLI = &cliCopy
+	}
+	if len(p.MissingFieldsList) > 0 {
+		copied.MissingFieldsList = append([]string(nil), p.MissingFieldsList...)
+	}
+	return copied
+}

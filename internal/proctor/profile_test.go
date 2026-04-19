@@ -89,3 +89,27 @@ func TestProfileMissingFieldsNoPlatform(t *testing.T) {
 		t.Fatalf("missing fields: got %v", got)
 	}
 }
+
+func TestProfileRedacted(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "demo@example.com", TestPassword: "hunter2",
+	}}
+	r := p.Redacted()
+	if r.Web.TestPassword != "***" {
+		t.Fatalf("expected password redacted, got %q", r.Web.TestPassword)
+	}
+	if r.Web.TestEmail != "demo@example.com" {
+		t.Fatalf("email should not be redacted, got %q", r.Web.TestEmail)
+	}
+	if p.Web.TestPassword != "hunter2" {
+		t.Fatalf("redaction should not mutate receiver")
+	}
+}
+
+func TestProfileRedactedNoSecret(t *testing.T) {
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{DevURL: "http://x"}}
+	r := p.Redacted()
+	if r.Web.TestPassword != "" {
+		t.Fatalf("empty password should redact to empty, got %q", r.Web.TestPassword)
+	}
+}
