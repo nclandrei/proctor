@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -185,19 +186,20 @@ func TestLoginSaveAndInvalidate(t *testing.T) {
 	if _, _, err := runCLI(t, "login", "save", "--file", src); err != nil {
 		t.Fatalf("login save: %v", err)
 	}
-	out, _, _ := runCLI(t, "project", "show")
-	if !bytes.Contains([]byte(out), []byte(`"sha256"`)) {
-		t.Fatalf("sha256 should appear after save, got: %s", out)
+	// Capture sha256 hex from the fresh-save output so we can assert it's gone after invalidate.
+	savedOut, _, _ := runCLI(t, "project", "show")
+	shaMatch := regexp.MustCompile(`"sha256": "([a-f0-9]{64})"`).FindStringSubmatch(savedOut)
+	if len(shaMatch) != 2 {
+		t.Fatalf("expected sha256 in project show after login save, got: %s", savedOut)
 	}
+	savedHash := shaMatch[1]
+
 	if _, _, err := runCLI(t, "login", "invalidate"); err != nil {
 		t.Fatalf("login invalidate: %v", err)
 	}
-	out, _, _ = runCLI(t, "project", "show")
-	if bytes.Contains([]byte(out), []byte(`"sha256": "`)) && !bytes.Contains([]byte(out), []byte(`"sha256": ""`)) {
-		// sha256 was either omitted or cleared — both are acceptable
-		if bytes.Count([]byte(out), []byte(`"sha256"`)) > 0 && !bytes.Contains([]byte(out), []byte(`"sha256": ""`)) {
-			t.Fatalf("sha256 should be cleared after invalidate, got: %s", out)
-		}
+	invalOut, _, _ := runCLI(t, "project", "show")
+	if bytes.Contains([]byte(invalOut), []byte(savedHash)) {
+		t.Fatalf("sha256 %s should not appear after invalidate, got: %s", savedHash, invalOut)
 	}
 }
 
