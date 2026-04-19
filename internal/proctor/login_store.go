@@ -111,6 +111,7 @@ func LoginStateForProfile(s *Store, p Profile) LoginState {
 		return LoginState{Kind: LoginMissing}
 	}
 	destPath := filepath.Join(s.ProfileDir(p.RepoSlug), "session.json")
+	tightenPermsIfLoose(destPath)
 	data, err := os.ReadFile(destPath)
 	if err != nil {
 		return LoginState{Kind: LoginMissing}

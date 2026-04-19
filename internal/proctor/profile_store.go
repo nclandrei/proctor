@@ -22,18 +22,36 @@ func (s *Store) profilePath(slug string) string {
 }
 
 func LoadProfile(s *Store, slug string) (Profile, error) {
-	data, err := os.ReadFile(s.profilePath(slug))
+	path := s.profilePath(slug)
+	tightenPermsIfLoose(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Profile{}, err
 	}
 	var p Profile
 	if err := json.Unmarshal(data, &p); err != nil {
-		return Profile{}, fmt.Errorf("parse profile %s: %w", s.profilePath(slug), err)
+		return Profile{}, fmt.Errorf("parse profile %s: %w", path, err)
 	}
 	if err := p.Validate(); err != nil {
 		return Profile{}, err
 	}
 	return p, nil
+}
+
+// tightenPermsIfLoose checks the file at path and, if its mode contains any
+// group or world permission bits, prints a warning to stderr and attempts a
+// best-effort chmod to 0600. Missing files and stat failures are ignored.
+func tightenPermsIfLoose(path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	mode := info.Mode().Perm()
+	if mode&0o077 == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "warning: %s had permissions %04o; tightening to 0600\n", path, mode)
+	_ = os.Chmod(path, 0o600)
 }
 
 // saveProfileLocked writes the profile atomically with 0600 perms. It assumes

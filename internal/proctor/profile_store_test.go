@@ -97,6 +97,29 @@ func TestSaveProfileRecomputesIncomplete(t *testing.T) {
 	}
 }
 
+func TestLoadProfileTightensLoosePerms(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	if err := SaveProfile(s, "r", p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(s.profilePath("r"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadProfile(s, "r"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(s.profilePath("r"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("expected perms tightened to 0600, got %o", info.Mode().Perm())
+	}
+}
+
 func TestUpdateProfileHoldsLockAcrossMutate(t *testing.T) {
 	s := newTestStore(t)
 	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
