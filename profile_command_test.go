@@ -155,3 +155,34 @@ func TestProjectSetStampsField(t *testing.T) {
 		t.Fatalf("set did not persist: %q", out)
 	}
 }
+
+func TestLoginSaveAndInvalidate(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	runCLI(t, "init", "--platform", "web", "--url", "http://x", "--test-email", "a@b.c", "--test-password", "p")
+
+	src := filepath.Join(t.TempDir(), "storage.json")
+	os.WriteFile(src, []byte(`{"cookies":[]}`), 0o644)
+
+	if _, _, err := runCLI(t, "login", "save", "--file", src); err != nil {
+		t.Fatalf("login save: %v", err)
+	}
+	out, _, _ := runCLI(t, "project", "show")
+	if !bytes.Contains([]byte(out), []byte(`"sha256"`)) {
+		t.Fatalf("sha256 should appear after save, got: %s", out)
+	}
+	if _, _, err := runCLI(t, "login", "invalidate"); err != nil {
+		t.Fatalf("login invalidate: %v", err)
+	}
+	out, _, _ = runCLI(t, "project", "show")
+	if bytes.Contains([]byte(out), []byte(`"sha256": "`)) && !bytes.Contains([]byte(out), []byte(`"sha256": ""`)) {
+		// sha256 was either omitted or cleared — both are acceptable
+		if bytes.Count([]byte(out), []byte(`"sha256"`)) > 0 && !bytes.Contains([]byte(out), []byte(`"sha256": ""`)) {
+			t.Fatalf("sha256 should be cleared after invalidate, got: %s", out)
+		}
+	}
+}

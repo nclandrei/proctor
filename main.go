@@ -75,8 +75,47 @@ func run(args []string) error {
 		return runReport(store, cwd)
 	case "project":
 		return runProject(store, cwd, args[1:])
+	case "login":
+		return runLoginCommand(store, cwd, args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
+	}
+}
+
+func runLoginCommand(store *proctor.Store, cwd string, args []string) error {
+	if len(args) == 0 {
+		return errors.New("login requires a subcommand: save, invalidate")
+	}
+	slug, err := proctor.RepoSlug(proctor.RepoRoot(cwd))
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "save":
+		fs := flag.NewFlagSet("login save", flag.ContinueOnError)
+		fs.SetOutput(ioDiscard{})
+		var file, ttl string
+		fs.StringVar(&file, "file", "", "")
+		fs.StringVar(&ttl, "ttl", "", "")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(file) == "" {
+			return errors.New("login save requires --file")
+		}
+		updated, err := proctor.SaveLogin(store, slug, file, ttl)
+		if err != nil {
+			return err
+		}
+		return printProfile(os.Stdout, store, updated)
+	case "invalidate":
+		updated, err := proctor.InvalidateLogin(store, slug)
+		if err != nil {
+			return err
+		}
+		return printProfile(os.Stdout, store, updated)
+	default:
+		return fmt.Errorf("unknown login subcommand: %s", args[0])
 	}
 }
 
