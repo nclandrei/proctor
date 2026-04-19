@@ -269,6 +269,62 @@ input deterministically, capture pane output, and take screenshots.
 - capture the terminal transcript from that session
 - record the actual command you exercised
 
+## Project profile
+
+Proctor remembers per-repo context so the agent doesn't rediscover it each run.
+The profile lives under `~/.proctor/profiles/<repo-slug>/profile.json` (0600 on
+the file, 0700 on the directory). `PROCTOR_HOME` overrides the storage root.
+
+The first time an agent works in a project, it stamps a profile with the
+platform, the dev server URL, and the test credentials the human is willing to
+expose for manual verification:
+
+```bash
+proctor init \
+  --platform web \
+  --url http://127.0.0.1:3000 \
+  --test-email demo@example.com \
+  --test-password <stamp-or-omit>
+```
+
+`proctor init` is idempotent. Missing required fields do not fail the command;
+the written profile is flagged `incomplete` with `missing_fields` listing
+exactly what still has to be supplied. When the agent encounters that state it
+should ask the human for the missing value and then stamp it:
+
+```bash
+proctor project set web.test_password=<value>
+```
+
+The agent inspects the stored profile with secrets redacted:
+
+```bash
+proctor project show
+```
+
+When the browser tool needs the raw value (for example to type a password into
+the login form) the agent fetches a single field with `get`, which emits
+secrets unredacted:
+
+```bash
+proctor project get web.test_password
+```
+
+After a successful login, the agent can save the resulting browser
+storage-state so later runs reuse the session instead of re-authenticating:
+
+```bash
+proctor login save --file /path/to/storage.json
+```
+
+If the session goes bad, `proctor login invalidate` clears it and the next run
+re-authenticates from scratch. `proctor project show` reports the freshness of
+the saved login ("fresh", "stale", or "missing").
+
+`proctor start` auto-fills flags from the profile (platform, dev URL, bundle
+id, CLI command, and so on). Explicit flags on the `start` command line always
+win.
+
 ## Known-Good Capture Workflows
 
 Proctor does not own capture. The agent should discover or choose a workflow
@@ -652,6 +708,19 @@ CLI:
 
 - `proctor --help`
   The long-form agent onboarding surface.
+- `proctor init`
+  Creates or updates the per-repo profile (platform, dev URL, test credentials,
+  platform-specific fields). Idempotent; incomplete profiles are written and
+  flagged with `missing_fields` rather than failing the command.
+- `proctor project`
+  Inspects or stamps fields on the profile. `proctor project show` prints the
+  profile with secrets redacted; `proctor project get <field>` emits a single
+  value raw so the agent can hand it to its browser tool; `proctor project set
+  <field>=<value>` stamps one or more dotted fields on the profile.
+- `proctor login`
+  Manages a reusable authenticated session for the profile.
+  `proctor login save --file <path>` records a fresh storage-state file for
+  this repo; `proctor login invalidate` clears it.
 - `proctor start`
   Creates the verification contract.
 - `proctor status`
