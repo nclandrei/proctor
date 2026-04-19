@@ -2,8 +2,11 @@
 package proctor
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 )
 
 // DetectProfile probes the repo root for signals and returns a best-guess
@@ -14,7 +17,12 @@ func DetectProfile(repoRoot string) (Profile, []string) {
 	var detected []string
 	if fileExists(filepath.Join(repoRoot, "package.json")) {
 		p.Platform = PlatformWeb
-		p.Web = &WebProfile{}
+		web := &WebProfile{}
+		if url := detectWebDevURL(filepath.Join(repoRoot, "package.json")); url != "" {
+			web.DevURL = url
+			detected = append(detected, "web.dev_url")
+		}
+		p.Web = web
 		detected = append(detected, "platform")
 		return p, detected
 	}
@@ -49,4 +57,37 @@ func hasXcodeProj(dir string) bool {
 		}
 	}
 	return false
+}
+
+var portFlagRegexp = regexp.MustCompile(`\s-p(?:\s+|=)(\d{2,5})|--port(?:\s+|=)(\d{2,5})`)
+
+func detectWebDevURL(packageJSONPath string) string {
+	data, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		return ""
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return ""
+	}
+	dev := pkg.Scripts["dev"]
+	if dev == "" {
+		return ""
+	}
+	if matches := portFlagRegexp.FindStringSubmatch(dev); matches != nil {
+		for _, m := range matches[1:] {
+			if m != "" {
+				return "http://127.0.0.1:" + m
+			}
+		}
+	}
+	switch {
+	case strings.Contains(dev, "next"):
+		return "http://127.0.0.1:3000"
+	case strings.Contains(dev, "vite"):
+		return "http://127.0.0.1:5173"
+	}
+	return ""
 }

@@ -59,3 +59,39 @@ func TestDetectProfileUnknown(t *testing.T) {
 		t.Fatalf("expected empty platform, got %q", p.Platform)
 	}
 }
+
+func TestDetectProfileURLFromNextDevPort(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts":{"dev":"next dev -p 4000"}}`)
+	p, _ := DetectProfile(dir)
+	if p.Web == nil || p.Web.DevURL != "http://127.0.0.1:4000" {
+		t.Fatalf("expected :4000, got %+v", p.Web)
+	}
+}
+
+func TestDetectProfileURLFromViteDefault(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts":{"dev":"vite"}}`)
+	p, _ := DetectProfile(dir)
+	if p.Web == nil || p.Web.DevURL != "http://127.0.0.1:5173" {
+		t.Fatalf("expected :5173 default, got %+v", p.Web)
+	}
+}
+
+func TestDetectProfileURLFromNextDefault(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts":{"dev":"next dev"}}`)
+	p, _ := DetectProfile(dir)
+	if p.Web == nil || p.Web.DevURL != "http://127.0.0.1:3000" {
+		t.Fatalf("expected :3000 default, got %+v", p.Web)
+	}
+}
+
+func TestDetectProfileURLUnknownScriptLeavesEmpty(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts":{"dev":"some-unknown-runner"}}`)
+	p, _ := DetectProfile(dir)
+	if p.Web == nil || p.Web.DevURL != "" {
+		t.Fatalf("expected empty URL for unknown runner, got %+v", p.Web)
+	}
+}
