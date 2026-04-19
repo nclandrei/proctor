@@ -36,30 +36,17 @@ func LoadProfile(s *Store, slug string) (Profile, error) {
 	return p, nil
 }
 
-// SaveProfile writes the profile atomically with 0600 perms. Recomputes
-// MissingFieldsList/Incomplete before writing. An exclusive flock is held on
-// the destination during the read-merge-write cycle so concurrent init/set
-// calls do not clobber each other.
-func SaveProfile(s *Store, slug string, p Profile) error {
+// saveProfileLocked writes the profile atomically with 0600 perms. It assumes
+// the caller already holds the flock on profile.json.lock and that the profile
+// directory already exists.
+func saveProfileLocked(s *Store, slug string, p Profile) error {
 	if p.Version == 0 {
 		p.Version = ProfileVersion
 	}
 	p.RepoSlug = slug
 	p.Recompute()
 	dir := s.ProfileDir(slug)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	dest := s.profilePath(slug)
-	lock, err := os.OpenFile(dest+".lock", os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return fmt.Errorf("lock profile: %w", err)
-	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	data, err := json.MarshalIndent(&p, "", "  ")
 	if err != nil {
 		return err
@@ -89,4 +76,70 @@ func SaveProfile(s *Store, slug string, p Profile) error {
 		return err
 	}
 	return nil
+}
+
+// SaveProfile writes the profile atomically with 0600 perms. Recomputes
+// MissingFieldsList/Incomplete before writing. An exclusive flock is held on
+// the destination during the write so concurrent init/set calls do not clobber
+// each other.
+func SaveProfile(s *Store, slug string, p Profile) error {
+	dir := s.ProfileDir(slug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	dest := s.profilePath(slug)
+	lock, err := os.OpenFile(dest+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock profile: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	return saveProfileLocked(s, slug, p)
+}
+
+// UpdateProfile serializes a read-mutate-write cycle under the profile flock
+// so concurrent callers cannot lose each other's updates. If the profile does
+// not yet exist a zero Profile is passed to mutate. The returned Profile is
+// the persisted value.
+func UpdateProfile(s *Store, slug string, mutate func(*Profile) error) (Profile, error) {
+	dir := s.ProfileDir(slug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return Profile{}, err
+	}
+	dest := s.profilePath(slug)
+	lock, err := os.OpenFile(dest+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return Profile{}, err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return Profile{}, fmt.Errorf("lock profile: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+
+	var p Profile
+	loaded, err := LoadProfile(s, slug)
+	if err != nil && !os.IsNotExist(err) {
+		return Profile{}, err
+	}
+	if err == nil {
+		p = loaded
+	}
+	if mutate != nil {
+		if err := mutate(&p); err != nil {
+			return Profile{}, err
+		}
+	}
+	if err := saveProfileLocked(s, slug, p); err != nil {
+		return Profile{}, err
+	}
+	// Return what's actually on disk (including Recompute results).
+	reloaded, err := LoadProfile(s, slug)
+	if err != nil {
+		return Profile{}, err
+	}
+	return reloaded, nil
 }

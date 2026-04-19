@@ -153,24 +153,22 @@ func runProject(store *proctor.Store, cwd string, args []string) error {
 		if len(args) < 2 {
 			return errors.New("project set requires at least one key=value pair")
 		}
-		p, err := proctor.LoadProfile(store, slug)
+		updated, err := proctor.UpdateProfile(store, slug, func(p *proctor.Profile) error {
+			for _, pair := range args[1:] {
+				key, value, ok := strings.Cut(pair, "=")
+				if !ok {
+					return fmt.Errorf("invalid key=value: %s", pair)
+				}
+				if err := p.SetField(strings.TrimSpace(key), strings.TrimSpace(value)); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		for _, pair := range args[1:] {
-			key, value, ok := strings.Cut(pair, "=")
-			if !ok {
-				return fmt.Errorf("invalid key=value: %s", pair)
-			}
-			if err := p.SetField(strings.TrimSpace(key), strings.TrimSpace(value)); err != nil {
-				return err
-			}
-		}
-		if err := proctor.SaveProfile(store, slug, p); err != nil {
-			return err
-		}
-		loaded, _ := proctor.LoadProfile(store, slug)
-		return printProfile(os.Stdout, store, loaded)
+		return printProfile(os.Stdout, store, updated)
 	default:
 		return fmt.Errorf("unknown project subcommand: %s", args[0])
 	}
@@ -799,84 +797,81 @@ func runInit(store *proctor.Store, cwd string, args []string) error {
 		return err
 	}
 
-	// Load existing profile if any; otherwise detect.
-	p, err := proctor.LoadProfile(store, slug)
-	switch {
-	case err == nil && forceDetect:
-		detected, _ := proctor.DetectProfile(repoRoot)
-		p = mergeProfile(detected, p)
-	case err == nil:
-		// existing profile becomes base; no detection
-	case os.IsNotExist(err):
-		detected, _ := proctor.DetectProfile(repoRoot)
-		p = detected
-	default:
-		return err
-	}
+	updated, err := proctor.UpdateProfile(store, slug, func(p *proctor.Profile) error {
+		// If the loaded profile is zero-valued (no file present), fall back to
+		// detection. If it's present but forceDetect is set, merge detection into
+		// the existing profile.
+		if p.Version == 0 && p.Platform == "" {
+			detected, _ := proctor.DetectProfile(repoRoot)
+			*p = detected
+		} else if forceDetect {
+			detected, _ := proctor.DetectProfile(repoRoot)
+			*p = mergeProfile(detected, *p)
+		}
 
-	if platform != "" {
-		p.Platform = platform
-	}
-	switch p.Platform {
-	case proctor.PlatformWeb:
-		if p.Web == nil {
-			p.Web = &proctor.WebProfile{}
+		if platform != "" {
+			p.Platform = platform
 		}
-		if url != "" {
-			p.Web.DevURL = url
-		}
-		if authURL != "" {
-			p.Web.AuthURL = authURL
-		}
-		if testEmail != "" {
-			p.Web.TestEmail = testEmail
-		}
-		if testPassword != "" {
-			p.Web.TestPassword = testPassword
-		}
-		if loginTTL != "" {
-			if p.Web.Login == nil {
-				p.Web.Login = &proctor.LoginConfig{File: "session.json"}
+		switch p.Platform {
+		case proctor.PlatformWeb:
+			if p.Web == nil {
+				p.Web = &proctor.WebProfile{}
 			}
-			p.Web.Login.TTL = loginTTL
+			if url != "" {
+				p.Web.DevURL = url
+			}
+			if authURL != "" {
+				p.Web.AuthURL = authURL
+			}
+			if testEmail != "" {
+				p.Web.TestEmail = testEmail
+			}
+			if testPassword != "" {
+				p.Web.TestPassword = testPassword
+			}
+			if loginTTL != "" {
+				if p.Web.Login == nil {
+					p.Web.Login = &proctor.LoginConfig{File: "session.json"}
+				}
+				p.Web.Login.TTL = loginTTL
+			}
+		case proctor.PlatformIOS:
+			if p.IOS == nil {
+				p.IOS = &proctor.IOSProfile{}
+			}
+			if iosScheme != "" {
+				p.IOS.Scheme = iosScheme
+			}
+			if iosBundle != "" {
+				p.IOS.BundleID = iosBundle
+			}
+			if iosSim != "" {
+				p.IOS.Simulator = iosSim
+			}
+		case proctor.PlatformDesktop:
+			if p.Desktop == nil {
+				p.Desktop = &proctor.DesktopProfile{}
+			}
+			if appName != "" {
+				p.Desktop.AppName = appName
+			}
+			if appBundle != "" {
+				p.Desktop.BundleID = appBundle
+			}
+		case proctor.PlatformCLI:
+			if p.CLI == nil {
+				p.CLI = &proctor.CLIProfile{}
+			}
+			if cliCommand != "" {
+				p.CLI.Command = cliCommand
+			}
 		}
-	case proctor.PlatformIOS:
-		if p.IOS == nil {
-			p.IOS = &proctor.IOSProfile{}
-		}
-		if iosScheme != "" {
-			p.IOS.Scheme = iosScheme
-		}
-		if iosBundle != "" {
-			p.IOS.BundleID = iosBundle
-		}
-		if iosSim != "" {
-			p.IOS.Simulator = iosSim
-		}
-	case proctor.PlatformDesktop:
-		if p.Desktop == nil {
-			p.Desktop = &proctor.DesktopProfile{}
-		}
-		if appName != "" {
-			p.Desktop.AppName = appName
-		}
-		if appBundle != "" {
-			p.Desktop.BundleID = appBundle
-		}
-	case proctor.PlatformCLI:
-		if p.CLI == nil {
-			p.CLI = &proctor.CLIProfile{}
-		}
-		if cliCommand != "" {
-			p.CLI.Command = cliCommand
-		}
-	}
-
-	if err := proctor.SaveProfile(store, slug, p); err != nil {
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-	loaded, _ := proctor.LoadProfile(store, slug)
-	return printProfile(os.Stdout, store, loaded)
+	return printProfile(os.Stdout, store, updated)
 }
 
 // mergeProfile returns base with empty fields filled from extra.

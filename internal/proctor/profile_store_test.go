@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 )
 
@@ -93,5 +94,41 @@ func TestSaveProfileRecomputesIncomplete(t *testing.T) {
 	}
 	if len(loaded.MissingFieldsList) < 2 {
 		t.Fatalf("expected missing fields, got %v", loaded.MissingFieldsList)
+	}
+}
+
+func TestUpdateProfileHoldsLockAcrossMutate(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	if err := SaveProfile(s, "r", p); err != nil {
+		t.Fatal(err)
+	}
+	var observed bool
+	if _, err := UpdateProfile(s, "r", func(loaded *Profile) error {
+		lockPath := s.ProfileDir("r") + "/profile.json.lock"
+		fd, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return err
+		}
+		defer fd.Close()
+		if err := syscall.Flock(int(fd.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			_ = syscall.Flock(int(fd.Fd()), syscall.LOCK_UN)
+			t.Errorf("expected lock to be held during mutate; non-blocking acquire succeeded")
+		} else {
+			observed = true
+		}
+		loaded.Web.TestEmail = "updated@example.com"
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateProfile: %v", err)
+	}
+	if !observed {
+		t.Fatal("test did not verify lock contention")
+	}
+	reloaded, _ := LoadProfile(s, "r")
+	if reloaded.Web.TestEmail != "updated@example.com" {
+		t.Fatalf("mutation was not persisted: %+v", reloaded.Web)
 	}
 }
