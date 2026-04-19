@@ -67,3 +67,22 @@ func SaveLogin(s *Store, slug, srcPath, ttlOverride string) (Profile, error) {
 	}
 	return p, nil
 }
+
+func InvalidateLogin(s *Store, slug string) (Profile, error) {
+	p, err := LoadProfile(s, slug)
+	if err != nil {
+		return Profile{}, err
+	}
+	destPath := filepath.Join(s.ProfileDir(slug), "session.json")
+	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
+		return Profile{}, err
+	}
+	if p.Web != nil && p.Web.Login != nil {
+		p.Web.Login.SavedAt = ""
+		p.Web.Login.SHA256 = ""
+	}
+	if err := SaveProfile(s, slug, p); err != nil {
+		return Profile{}, err
+	}
+	return p, nil
+}

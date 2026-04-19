@@ -80,3 +80,36 @@ func TestSaveLoginOverridesTTL(t *testing.T) {
 		t.Fatalf("ttl override: got %q want 2h", updated.Web.Login.TTL)
 	}
 }
+
+func TestInvalidateLoginRemovesFileAndConfig(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	SaveProfile(s, "r", p)
+	src := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(src, []byte("{}"), 0o644)
+	SaveLogin(s, "r", src, "")
+
+	updated, err := InvalidateLogin(s, "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(s.ProfileDir("r"), "session.json")); !os.IsNotExist(err) {
+		t.Fatalf("session.json should be gone, err=%v", err)
+	}
+	if updated.Web.Login != nil && (updated.Web.Login.SavedAt != "" || updated.Web.Login.SHA256 != "") {
+		t.Fatalf("login fields should be cleared: %+v", updated.Web.Login)
+	}
+}
+
+func TestInvalidateLoginNoopWhenMissing(t *testing.T) {
+	s := newTestStore(t)
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		DevURL: "http://x", TestEmail: "a@b.c", TestPassword: "p",
+	}}
+	SaveProfile(s, "r", p)
+	if _, err := InvalidateLogin(s, "r"); err != nil {
+		t.Fatalf("expected no error when login missing, got %v", err)
+	}
+}
