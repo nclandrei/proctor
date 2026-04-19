@@ -73,8 +73,31 @@ func run(args []string) error {
 		return runDone(store, cwd)
 	case "report":
 		return runReport(store, cwd)
+	case "project":
+		return runProject(store, cwd, args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
+	}
+}
+
+func runProject(store *proctor.Store, cwd string, args []string) error {
+	if len(args) == 0 {
+		return errors.New("project requires a subcommand: show, get, set")
+	}
+	repoRoot := proctor.RepoRoot(cwd)
+	slug, err := proctor.RepoSlug(repoRoot)
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "show":
+		p, err := proctor.LoadProfile(store, slug)
+		if err != nil {
+			return err
+		}
+		return printProfile(os.Stdout, store, p)
+	default:
+		return fmt.Errorf("unknown project subcommand: %s", args[0])
 	}
 }
 

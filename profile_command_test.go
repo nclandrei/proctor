@@ -86,3 +86,36 @@ func TestInitCommandProducesIncompleteWhenMissing(t *testing.T) {
 		t.Fatalf("init should succeed even with missing fields: %v", err)
 	}
 }
+
+func TestProjectShowPrintsRedactedProfile(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644)
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	runCLI(t, "init", "--platform", "web", "--url", "http://x", "--test-email", "a@b.c", "--test-password", "hunter2")
+
+	out, _, err := runCLI(t, "project", "show")
+	if err != nil {
+		t.Fatalf("project show: %v", err)
+	}
+	if !bytes.Contains([]byte(out), []byte(`"test_password": "***"`)) {
+		t.Fatalf("expected redacted password in output, got: %s", out)
+	}
+	if bytes.Contains([]byte(out), []byte("hunter2")) {
+		t.Fatalf("raw password leaked: %s", out)
+	}
+}
+
+func TestProjectShowMissingProfile(t *testing.T) {
+	withProctorHome(t)
+	repo := t.TempDir()
+	oldDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(oldDir) })
+	os.Chdir(repo)
+	_, _, err := runCLI(t, "project", "show")
+	if err == nil {
+		t.Fatalf("expected error when no profile exists")
+	}
+}
