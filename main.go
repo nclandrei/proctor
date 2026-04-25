@@ -15,7 +15,7 @@ import (
 	"github.com/nclandrei/proctor/internal/proctor"
 )
 
-var version = "dev"
+var version = "0.12.0"
 
 type stringList []string
 
