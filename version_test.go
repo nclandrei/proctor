@@ -13,8 +13,9 @@ func TestVersionCommandPrintsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version command failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "proctor dev") {
-		t.Fatalf("expected default dev version, got %q", string(out))
+	expected := "proctor " + version
+	if !strings.Contains(string(out), expected) {
+		t.Fatalf("expected %q, got %q", expected, string(out))
 	}
 }
 
@@ -24,8 +25,9 @@ func TestVersionFlagPrintsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--version flag failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "proctor dev") {
-		t.Fatalf("expected default dev version, got %q", string(out))
+	expected := "proctor " + version
+	if !strings.Contains(string(out), expected) {
+		t.Fatalf("expected %q, got %q", expected, string(out))
 	}
 }
 
