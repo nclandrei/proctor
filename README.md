@@ -296,6 +296,17 @@ should ask the human for the missing value and then stamp it:
 proctor project set web.test_password=<value>
 ```
 
+Credential fields (`web.test_email`, `web.test_password`) accept either a
+literal value or a reference that is resolved at read time:
+
+- `env:NAME` — read from the environment variable `NAME`
+- `op://vault/item/field` — read via the 1Password CLI (`op read`)
+- anything else — treated as a literal
+
+References let the profile travel between machines (and live in version
+control if needed) without baking secrets into `profile.json`. `proctor
+project get` returns the resolved value; `profile.json` keeps the reference.
+
 The agent inspects the stored profile with secrets redacted:
 
 ```bash
