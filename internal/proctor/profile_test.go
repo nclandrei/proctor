@@ -3,6 +3,7 @@ package proctor
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -138,6 +139,58 @@ func TestProfileFieldValueUnknown(t *testing.T) {
 	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{}}
 	if _, err := p.FieldValue("web.nope"); err == nil {
 		t.Fatalf("expected error for unknown field")
+	}
+}
+
+func TestProfileFieldValueResolvesPasswordEnvRef(t *testing.T) {
+	t.Setenv("PROCTOR_TEST_RESOLVE_PW", "fromenv")
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		TestPassword: "env:PROCTOR_TEST_RESOLVE_PW",
+	}}
+	got, err := p.FieldValue("web.test_password")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "fromenv" {
+		t.Fatalf("got %q want resolved value %q", got, "fromenv")
+	}
+}
+
+func TestProfileFieldValueResolvesEmailEnvRef(t *testing.T) {
+	t.Setenv("PROCTOR_TEST_RESOLVE_EMAIL", "x@y.test")
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		TestEmail: "env:PROCTOR_TEST_RESOLVE_EMAIL",
+	}}
+	got, err := p.FieldValue("web.test_email")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "x@y.test" {
+		t.Fatalf("got %q want %q", got, "x@y.test")
+	}
+}
+
+func TestProfileFieldValuePropagatesResolverError(t *testing.T) {
+	os.Unsetenv("PROCTOR_TEST_RESOLVE_MISSING")
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		TestPassword: "env:PROCTOR_TEST_RESOLVE_MISSING",
+	}}
+	if _, err := p.FieldValue("web.test_password"); err == nil {
+		t.Fatal("expected error when env ref cannot be resolved")
+	}
+}
+
+func TestProfileFieldValueLiteralPasswordUnchanged(t *testing.T) {
+	// Existing literal-storage behavior must keep working.
+	p := Profile{Version: 1, Platform: PlatformWeb, Web: &WebProfile{
+		TestPassword: "hunter2",
+	}}
+	got, err := p.FieldValue("web.test_password")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "hunter2" {
+		t.Fatalf("got %q want literal %q", got, "hunter2")
 	}
 }
 

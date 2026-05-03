@@ -176,9 +176,9 @@ func (p *Profile) FieldValue(path string) (string, error) {
 		case "web.auth_url":
 			return p.Web.AuthURL, nil
 		case "web.test_email":
-			return p.Web.TestEmail, nil
+			return ResolveSecret(p.Web.TestEmail)
 		case "web.test_password":
-			return p.Web.TestPassword, nil
+			return ResolveSecret(p.Web.TestPassword)
 		case "web.login.file":
 			if p.Web.Login != nil {
 				return p.Web.Login.File, nil
